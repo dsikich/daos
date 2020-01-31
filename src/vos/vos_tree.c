@@ -78,8 +78,6 @@ iov2rec_bundle(d_iov_t *val_iov)
 struct ktr_hkey {
 	/** murmur64 hash */
 	uint64_t		kh_hash[2];
-	/** cacheline alignment */
-	uint64_t		kh_pad_64;
 };
 
 /**
@@ -182,6 +180,7 @@ ktr_hkey_gen(struct btr_instance *tins, d_iov_t *key_iov, void *hkey)
 					   VOS_BTR_MUR_SEED);
 	kkey->kh_hash[1] = d_hash_string_u32(key_iov->iov_buf,
 					     key_iov->iov_len);
+	vos_kh_set(kkey->kh_hash[0]);
 }
 
 /** compare the hashed key */
@@ -357,6 +356,7 @@ ktr_rec_free(struct btr_instance *tins, struct btr_record *rec, void *args)
 	krec = vos_rec2krec(tins, rec);
 	umem_attr_get(&tins->ti_umm, &uma);
 
+	vos_ilog_ts_evict(&krec->kr_ilog);
 	vos_ilog_desc_cbs_init(&cbs, tins->ti_coh);
 	rc = ilog_destroy(&tins->ti_umm, &cbs, &krec->kr_ilog);
 	if (rc != 0)
