@@ -294,6 +294,54 @@ get_auth_sys_payload(Auth__Token *token, Auth__Sys **payload)
 	return 0;
 }
 
+int
+ds_sec_pool_get_capabilities(uint64_t flags, d_iov_t *cred,
+			     struct ownership *ownership,
+			     struct daos_acl *acl, uint64_t *capas)
+{
+	int		rc;
+	Auth__Token	*token;
+	Auth__Sys	*authsys;
+
+	if (cred == NULL || ownership == NULL || acl == NULL || capas == NULL) {
+		D_ERROR("NULL input\n");
+		return -DER_INVAL;
+	}
+
+	if (ownership->user == NULL || ownership->group == NULL) {
+		D_ERROR("Invalid ownership\n");
+		return -DER_INVAL;
+	}
+
+	/* Pool flags are mutually exclusive */
+	if ((flags != DAOS_PC_RO) && (flags != DAOS_PC_RW) &&
+	    (flags != DAOS_PC_EX)) {
+		D_ERROR("Invalid flags\n");
+		return -DER_INVAL;
+	}
+
+	if (daos_acl_validate(acl) != 0) {
+		D_ERROR("Invalid ACL\n");
+		return -DER_INVAL;
+	}
+
+	rc = ds_sec_validate_credentials(cred, &token);
+	if (rc != 0) {
+		D_ERROR("Failed to validate credentials, rc="DF_RC"\n",
+			DP_RC(rc));
+		return rc;
+	}
+
+	rc = get_auth_sys_payload(token, &authsys);
+	auth__token__free_unpacked(token, NULL);
+	if (rc != 0)
+		return rc;
+
+	auth__sys__free_unpacked(authsys, NULL);
+
+	return 0;
+}
+
 static bool
 perms_have_access(uint64_t perms, uint64_t capas)
 {
@@ -377,7 +425,7 @@ add_perms_for_principal(struct daos_acl *acl, enum daos_acl_principal_type type,
 
 static int
 check_access_for_groups(struct daos_acl *acl,
-			struct pool_owner *ownership,
+			struct ownership *ownership,
 			Auth__Sys *authsys, uint64_t capas)
 {
 	int		rc;
@@ -420,7 +468,7 @@ check_access_for_groups(struct daos_acl *acl,
 
 static int
 check_authsys_permissions(struct daos_acl *acl,
-			  struct pool_owner *ownership,
+			  struct ownership *ownership,
 			  Auth__Sys *authsys, uint64_t capas)
 {
 	int rc;
@@ -443,7 +491,7 @@ check_authsys_permissions(struct daos_acl *acl,
 }
 
 int
-ds_sec_check_pool_access(struct daos_acl *acl, struct pool_owner *ownership,
+ds_sec_check_pool_access(struct daos_acl *acl, struct ownership *ownership,
 			 d_iov_t *cred, uint64_t capas)
 {
 	int		rc = 0;

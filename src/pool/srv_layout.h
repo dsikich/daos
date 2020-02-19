@@ -75,14 +75,6 @@ extern d_iov_t ds_pool_prop_handles;		/* pool handle KVS */
 /** user-defined attributes KVS */
 extern d_iov_t ds_pool_attr_user;		/* pool user attributes KVS */
 
-/**
- * Pool capabilities bits, derived from user-requested flags and user access
- * permissions.
- */
-#define POOL_CAPA_READ		(1U << 0)
-#define POOL_CAPA_CREATE_CONT	(1U << 1)
-#define POOL_CAPA_DEL_CONT	(1U << 2)
-
 /** value of key (handle uuid) in pool handle KVS (RDB_KVS_GENERIC) */
 struct pool_hdl {
 	uint64_t	ph_capas;

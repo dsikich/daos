@@ -115,6 +115,18 @@ struct ds_cont_hdl {
 	int			sch_ref;
 };
 
+/*
+ * Container capabilities bits. Derived from user-requested flags and user's
+ * access permissions.
+ */
+#define CONT_CAPA_READ_DATA	(1U << 0)
+#define CONT_CAPA_WRITE_DATA	(1U << 1)
+#define CONT_CAPA_GET_PROP	(1U << 2)
+#define CONT_CAPA_SET_PROP	(1U << 3)
+#define CONT_CAPA_GET_ACL	(1U << 4)
+#define CONT_CAPA_SET_ACL	(1U << 5)
+#define CONT_CAPA_SET_OWNER	(1U << 6)
+
 struct ds_cont_hdl *ds_cont_hdl_lookup(const uuid_t uuid);
 void ds_cont_hdl_put(struct ds_cont_hdl *hdl);
 void ds_cont_hdl_get(struct ds_cont_hdl *hdl);

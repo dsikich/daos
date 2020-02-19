@@ -89,18 +89,6 @@ extern d_iov_t ds_cont_prop_snapshots;		/* snapshot KVS */
 extern d_iov_t ds_cont_attr_user;		/* User attributes KVS */
 
 /*
- * Container capabilities bits. Derived from user-requested flags and user's
- * access permissions.
- */
-#define CONT_CAPA_READ_DATA	(1U << 0)
-#define CONT_CAPA_WRITE_DATA	(1U << 1)
-#define CONT_CAPA_GET_PROP	(1U << 2)
-#define CONT_CAPA_SET_PROP	(1U << 3)
-#define CONT_CAPA_GET_ACL	(1U << 4)
-#define CONT_CAPA_SET_ACL	(1U << 5)
-#define CONT_CAPA_SET_OWNER	(1U << 6)
-
-/*
  * Container handle KVS (RDB_KVS_GENERIC)
  *
  * A key is a container handle UUID (uuid_t). A value is a container_hdl object.

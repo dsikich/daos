@@ -33,9 +33,10 @@
 #include <daos_srv/pool.h>
 
 /**
- * Structure representing the pool's ownership by user and group, respectively.
+ * Structure representing a resource's ownership by user and group,
+ * respectively.
  */
-struct pool_owner {
+struct ownership {
 	char *user;	/** name of the user owner */
 	char *group;	/** name of the group owner */
 };
@@ -57,6 +58,30 @@ struct daos_acl *
 ds_sec_alloc_default_daos_cont_acl(void);
 
 /**
+ * Derive the pool capabilities from requested flags, user credential, pool
+ * ownership information, and the pool ACL;
+ *
+ * \param[in]	flags		Requested DAOS_PC flags
+ * \param[in]	cred		User's security credential
+ * \param[in]	ownership	Pool ownership information
+ * \param[in]	acl		Pool ACL
+ * \param[out]	capas		Capability bits for this user
+ *
+ * \return	0		Success
+ *		-DER_INVAL	Invalid input
+ *		-DER_BADPATH	Can't connect to the control plane socket at
+ *				the expected path
+ *		-DER_NOMEM	Out of memory
+ *		-DER_NOREPLY	No response from control plane
+ *		-DER_MISC	Error in control plane communications
+ *		-DER_PROTO	Unexpected or corrupt payload from control plane
+ */
+int
+ds_sec_pool_get_capabilities(uint64_t flags, d_iov_t *cred,
+			     struct ownership *ownership,
+			     struct daos_acl *acl, uint64_t *capas);
+
+/**
  * Determine whether the provided credentials can access a pool.
  *
  * \param[in]	acl		Access Control List for pool
@@ -76,7 +101,7 @@ ds_sec_alloc_default_daos_cont_acl(void);
  *		-DER_PROTO	Unexpected or corrupt payload from control plane
  */
 int
-ds_sec_check_pool_access(struct daos_acl *acl, struct pool_owner *ownership,
+ds_sec_check_pool_access(struct daos_acl *acl, struct ownership *ownership,
 			 d_iov_t *cred, uint64_t capas);
 
 #endif /* __DAOS_SRV_SECURITY_H__ */

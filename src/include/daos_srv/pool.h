@@ -74,6 +74,14 @@ struct ds_pool_hdl {
 	int			sph_ref;
 };
 
+/*
+ * Pool capabilities bits, derived from user-requested flags and user access
+ * permissions.
+ */
+#define POOL_CAPA_READ		(1U << 0)
+#define POOL_CAPA_CREATE_CONT	(1U << 1)
+#define POOL_CAPA_DEL_CONT	(1U << 2)
+
 struct ds_pool_hdl *ds_pool_hdl_lookup(const uuid_t uuid);
 void ds_pool_hdl_put(struct ds_pool_hdl *hdl);
 

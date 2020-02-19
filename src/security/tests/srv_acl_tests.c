@@ -128,7 +128,7 @@ init_default_cred(d_iov_t *cred)
 }
 
 static void
-init_default_ownership(struct pool_owner *owner)
+init_default_ownership(struct ownership *owner)
 {
 	owner->user = TEST_USER;
 	owner->group = TEST_GROUP;
@@ -445,7 +445,7 @@ static void
 test_check_pool_access_null_acl(void **state)
 {
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_cred(&cred);
 	init_default_ownership(&ownership);
@@ -479,7 +479,7 @@ test_check_pool_access_bad_owner_user(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_cred(&cred);
 	acl = daos_acl_create(NULL, 0);
@@ -500,7 +500,7 @@ test_check_pool_access_bad_owner_group(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_cred(&cred);
 	acl = daos_acl_create(NULL, 0);
@@ -520,7 +520,7 @@ static void
 test_check_pool_access_null_cred(void **state)
 {
 	struct daos_acl		*acl;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	acl = daos_acl_create(NULL, 0);
 	init_default_ownership(&ownership);
@@ -537,7 +537,7 @@ test_check_pool_access_bad_acl(void **state)
 {
 	struct daos_acl		*bad_acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_cred(&cred);
 	init_default_ownership(&ownership);
@@ -559,7 +559,7 @@ test_check_pool_access_validate_cred_failed(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_cred(&cred);
 	init_default_ownership(&ownership);
@@ -585,7 +585,7 @@ expect_no_access_bad_authsys_payload(int auth_flavor)
 	size_t			data_len = 8;
 	Auth__Token		token = AUTH__TOKEN__INIT;
 	Auth__ValidateCredResp	resp = AUTH__VALIDATE_CRED_RESP__INIT;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_cred(&cred);
 	init_default_ownership(&ownership);
@@ -628,7 +628,7 @@ test_check_pool_access_empty_acl(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_cred(&cred);
 	init_default_ownership(&ownership);
@@ -671,7 +671,7 @@ static void
 expect_access_with_acl(struct daos_acl *acl, d_iov_t *cred,
 		       uint64_t requested_capas)
 {
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 
@@ -783,7 +783,7 @@ test_check_pool_access_owner_overrides_group(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 	init_default_cred(&cred);
@@ -804,7 +804,7 @@ test_check_pool_access_no_match(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 
@@ -825,7 +825,7 @@ expect_no_owner_access_with_perms(uint64_t acl_perms, uint64_t requested_capas)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 	init_default_cred(&cred);
@@ -859,7 +859,7 @@ expect_no_group_access_with_perms(uint64_t acl_perms, uint64_t requested_capas)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 	init_valid_cred(&cred, "wronguser@", "wronggroup@", NULL, 0);
@@ -892,7 +892,7 @@ expect_no_list_access_with_perms(uint64_t acl_perms, uint64_t requested_capas)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 	static const char	*grps[] = { "wronggroup@", TEST_GROUP };
 
 	/* owner group is in list only */
@@ -930,7 +930,7 @@ test_check_pool_access_no_owner_entry(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 	init_default_cred(&cred);
@@ -954,7 +954,7 @@ test_check_pool_access_no_owner_group_entry(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 	init_valid_cred(&cred, "fakeuser@", TEST_GROUP, NULL, 0);
@@ -978,7 +978,7 @@ test_check_pool_access_no_owner_group_entry_list(void **state)
 {
 	struct daos_acl		*acl;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 	static const char	*grps[] = { TEST_GROUP };
 
 	init_default_ownership(&ownership);
@@ -1006,7 +1006,7 @@ expect_everyone_gets_result_with_perms(uint64_t acl_perms,
 	struct daos_acl		*acl;
 	struct daos_ace		*ace;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	init_default_ownership(&ownership);
 	init_valid_cred(&cred, TEST_USER, TEST_GROUP, NULL, 0);
@@ -1080,7 +1080,7 @@ test_check_pool_access_fall_thru_everyone(void **state)
 	struct daos_acl		*acl;
 	struct daos_ace		*ace;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 	static const char	*grps[] = { "anotherbadgrp@" };
 
 	init_default_ownership(&ownership);
@@ -1113,7 +1113,7 @@ test_check_pool_access_user_matches(void **state)
 	struct daos_acl		*acl;
 	struct daos_ace		*ace;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	/* Ownership won't match our creds */
 	ownership.user = "someuser@";
@@ -1143,7 +1143,7 @@ test_check_pool_access_user_matches_second(void **state)
 	size_t			num_aces = 2;
 	struct daos_ace		*ace[num_aces];
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	/* Ownership won't match our creds */
 	ownership.user = "someuser@";
@@ -1175,7 +1175,7 @@ test_check_pool_access_owner_beats_user(void **state)
 	struct daos_acl		*acl;
 	struct daos_ace		*ace;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	/* Owner matches our creds */
 	ownership.user = TEST_USER;
@@ -1210,7 +1210,7 @@ test_check_pool_access_user_beats_owner_grp(void **state)
 	struct daos_acl		*acl;
 	struct daos_ace		*ace;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	/* Owner group matches our creds */
 	ownership.user = "someuser@";
@@ -1247,7 +1247,7 @@ test_check_pool_access_grp_matches(void **state)
 	struct daos_acl		*acl;
 	struct daos_ace		*ace;
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	/* Ownership won't match our creds */
 	ownership.user = "someuser@";
@@ -1277,7 +1277,7 @@ test_check_pool_access_grp_matches_second(void **state)
 	size_t			num_aces = 2;
 	struct daos_ace		*ace[num_aces];
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 
 	/* Ownership won't match our creds */
 	ownership.user = "someuser@";
@@ -1310,7 +1310,7 @@ test_check_pool_access_grp_matches_multiple(void **state)
 	size_t			num_aces = 2;
 	struct daos_ace		*ace[num_aces];
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 	static const char	*groups[] = { "group1@", "group2@" };
 
 	/* Ownership won't match our creds */
@@ -1344,7 +1344,7 @@ test_check_pool_access_grp_no_match(void **state)
 	size_t			num_aces = 3;
 	struct daos_ace		*ace[num_aces];
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 	static const char	*groups[] = { "group1@", "group2@" };
 
 	/* Ownership won't match our creds */
@@ -1381,7 +1381,7 @@ test_check_pool_access_grp_check_includes_owner(void **state)
 	size_t			num_aces = 2;
 	struct daos_ace		*ace[num_aces];
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 	static const char	*groups[] = { "group1@", "group2@" };
 
 	/* Ownership matches group */
@@ -1415,7 +1415,7 @@ test_check_pool_access_grps_beat_everyone(void **state)
 	size_t			num_aces = 2;
 	struct daos_ace		*ace[num_aces];
 	d_iov_t			cred;
-	struct pool_owner	ownership;
+	struct ownership	ownership;
 	static const char	*groups[] = { "group1@", "group2@" };
 
 	/* Ownership doesn't match */
@@ -1519,6 +1519,196 @@ test_default_cont_acl(void **state)
 	daos_acl_free(acl);
 }
 
+static void
+expect_pool_get_capas_flags_invalid(uint64_t invalid_flags)
+{
+	struct daos_acl		*valid_acl;
+	d_iov_t			valid_cred;
+	struct ownership	valid_owner;
+	uint64_t		result = 0;
+
+	valid_owner.user = "root@";
+	valid_owner.group = "admins@";
+
+	valid_acl = daos_acl_create(NULL, 0);
+	assert_non_null(valid_acl);
+	init_default_cred(&valid_cred);
+
+	printf("Expecting flags 0x%lx invalid\n", invalid_flags);
+	assert_int_equal(ds_sec_pool_get_capabilities(invalid_flags,
+						      &valid_cred,
+						      &valid_owner, valid_acl,
+						      &result),
+			 -DER_INVAL);
+
+	daos_acl_free(valid_acl);
+	daos_iov_free(&valid_cred);
+}
+
+static void
+test_pool_get_capas_invalid_flags(void **state)
+{
+	expect_pool_get_capas_flags_invalid(0);
+	expect_pool_get_capas_flags_invalid(1U << DAOS_PC_NBITS);
+	expect_pool_get_capas_flags_invalid(DAOS_PC_RO | DAOS_PC_RW);
+	expect_pool_get_capas_flags_invalid(DAOS_PC_RO | DAOS_PC_EX);
+	expect_pool_get_capas_flags_invalid(DAOS_PC_RW | DAOS_PC_EX);
+}
+
+static void
+test_pool_get_capas_null_input(void **state)
+{
+	struct daos_acl		*valid_acl;
+	d_iov_t			valid_cred;
+	struct ownership	valid_owner;
+	struct ownership	invalid_owner;
+	uint64_t		valid_flags = DAOS_PC_RO;
+	uint64_t		result = 0;
+
+	init_default_ownership(&valid_owner);
+	init_default_cred(&valid_cred);
+
+	valid_acl = daos_acl_create(NULL, 0);
+	assert_non_null(valid_acl);
+
+	assert_int_equal(ds_sec_pool_get_capabilities(valid_flags,
+						      NULL,
+						      &valid_owner, valid_acl,
+						      &result),
+			 -DER_INVAL);
+
+	assert_int_equal(ds_sec_pool_get_capabilities(valid_flags,
+						      &valid_cred,
+						      NULL, valid_acl,
+						      &result),
+			 -DER_INVAL);
+
+	assert_int_equal(ds_sec_pool_get_capabilities(valid_flags,
+						      &valid_cred,
+						      &valid_owner, NULL,
+						      &result),
+			 -DER_INVAL);
+
+	assert_int_equal(ds_sec_pool_get_capabilities(valid_flags,
+						      &valid_cred,
+						      &valid_owner, valid_acl,
+						      NULL),
+			 -DER_INVAL);
+
+	invalid_owner.user = "myuser@";
+	invalid_owner.group = NULL;
+	assert_int_equal(ds_sec_pool_get_capabilities(valid_flags,
+						      &valid_cred,
+						      &invalid_owner, valid_acl,
+						      &result),
+			 -DER_INVAL);
+
+	invalid_owner.user = NULL;
+	invalid_owner.group = "mygroup@";
+	assert_int_equal(ds_sec_pool_get_capabilities(valid_flags,
+						      &valid_cred,
+						      &invalid_owner, valid_acl,
+						      &result),
+			 -DER_INVAL);
+}
+
+static void
+test_pool_get_capas_bad_acl(void **state)
+{
+	struct daos_acl		*bad_acl;
+	d_iov_t			cred;
+	struct ownership	ownership;
+	uint64_t		result;
+
+	init_default_cred(&cred);
+	init_default_ownership(&ownership);
+
+	/* zeroed out - not a valid ACL */
+	D_ALLOC(bad_acl, sizeof(struct daos_acl));
+	assert_non_null(bad_acl);
+
+	assert_int_equal(ds_sec_pool_get_capabilities(DAOS_PC_RO, &cred,
+						      &ownership, bad_acl,
+						      &result),
+			 -DER_INVAL);
+
+	D_FREE(bad_acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_validate_cred_failed(void **state)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+	struct ownership	ownership;
+	uint64_t		result;
+
+	init_default_cred(&cred);
+	init_default_ownership(&ownership);
+	acl = daos_acl_create(NULL, 0);
+
+	/* drpc call failure will fail validation */
+	drpc_call_return = -DER_UNKNOWN;
+	drpc_call_resp_return_ptr = NULL;
+
+	assert_int_equal(ds_sec_pool_get_capabilities(DAOS_PC_RO, &cred,
+						      &ownership, acl,
+						      &result),
+			 drpc_call_return);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+expect_pool_get_capas_bad_authsys_payload(int auth_flavor)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+	size_t			data_len = 8;
+	Auth__Token		token = AUTH__TOKEN__INIT;
+	Auth__ValidateCredResp	resp = AUTH__VALIDATE_CRED_RESP__INIT;
+	struct ownership	ownership;
+	uint64_t		result;
+
+	init_default_cred(&cred);
+	init_default_ownership(&ownership);
+	acl = daos_acl_create(NULL, 0);
+
+	token.flavor = auth_flavor;
+
+	/* Put some junk in there */
+	D_ALLOC(token.data.data, data_len);
+	memset(token.data.data, 0xFF, data_len);
+	token.data.len = data_len;
+
+	resp.token = &token;
+
+	pack_validate_resp_in_drpc_call_resp_body(&resp);
+
+	assert_int_equal(ds_sec_pool_get_capabilities(DAOS_PC_RO, &cred,
+						      &ownership, acl,
+						      &result),
+			 -DER_PROTO);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+	D_FREE(token.data.data);
+}
+
+static void
+test_pool_get_capas_wrong_flavor(void **state)
+{
+	expect_pool_get_capas_bad_authsys_payload(AUTH__FLAVOR__AUTH_NONE);
+}
+
+static void
+test_pool_get_capas_bad_payload(void **state)
+{
+	expect_pool_get_capas_bad_authsys_payload(AUTH__FLAVOR__AUTH_SYS);
+}
+
 /* Convenience macro for unit tests */
 #define ACL_UTEST(X)	cmocka_unit_test_setup_teardown(X, srv_acl_setup, \
 							srv_acl_teardown)
@@ -1574,6 +1764,12 @@ main(void)
 		ACL_UTEST(test_check_pool_access_grps_beat_everyone),
 		cmocka_unit_test(test_default_pool_acl),
 		cmocka_unit_test(test_default_cont_acl),
+		ACL_UTEST(test_pool_get_capas_invalid_flags),
+		ACL_UTEST(test_pool_get_capas_null_input),
+		ACL_UTEST(test_pool_get_capas_bad_acl),
+		ACL_UTEST(test_pool_get_capas_validate_cred_failed),
+		ACL_UTEST(test_pool_get_capas_wrong_flavor),
+		ACL_UTEST(test_pool_get_capas_bad_payload),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);

@@ -1876,7 +1876,7 @@ ds_pool_connect_handler(crt_rpc_t *rpc)
 	daos_prop_t		       *prop = NULL;
 	uint64_t			prop_bits;
 	struct daos_prop_entry	       *acl_entry;
-	struct pool_owner		owner;
+	struct ownership		owner;
 	struct daos_prop_entry	       *owner_entry;
 	struct daos_prop_entry	       *owner_grp_entry;
 
