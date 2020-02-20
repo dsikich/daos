@@ -1,6 +1,6 @@
 #!/usr/bin/python2
 """
-  (C) Copyright 2018-2019 Intel Corporation.
+  (C) Copyright 2018-2020 Intel Corporation.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
   Any reproduction of computer software, computer software documentation, or
   portions thereof marked with this legend must also reproduce the markings.
 """
+# pylint: disable=too-many-lines
 from __future__ import print_function
 
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
@@ -268,7 +269,7 @@ def spawn_commands(host_list, command, timeout=120):
     # Display the command output
     for code in sorted(results):
         output_data = list(task.iter_buffers(results[code]))
-        if len(output_data) == 0:
+        if not output_data:
             err_nodes = NodeSet.fromlist(results[code])
             print("    {}: rc={}, output: <NONE>".format(err_nodes, code))
         else:
@@ -505,6 +506,10 @@ def run_tests(test_files, tag_filter, args):
             # Optionally rename the test results directory for this test
             if args.rename:
                 rename_logs(avocado_logs_dir, test_file["py"])
+
+            # Optionally process core files
+            if args.process_cores:
+                process_the_cores(avocado_logs_dir, test_file["yaml"], args)
         else:
             # The test was not run due to an error replacing host placeholders
             # in the yaml file.  Treat this like a failed avocado command.
@@ -662,11 +667,11 @@ def archive_logs(avocado_logs_dir, test_yaml, args):
     log_files = get_log_files(
         os.path.join(get_temporary_directory(), TEST_DAOS_SERVER_YAML))
     host_list = get_hosts_from_yaml(test_yaml, args)
-    doas_logs_dir = os.path.join(avocado_logs_dir, "latest", "daos_logs")
+    daos_logs_dir = os.path.join(avocado_logs_dir, "latest", "daos_logs")
 
     # Create a subdirectory in the avocado logs directory for this test
-    print("Archiving host logs from {} in {}".format(host_list, doas_logs_dir))
-    get_output("mkdir {}".format(doas_logs_dir))
+    print("Archiving host logs from {} in {}".format(host_list, daos_logs_dir))
+    get_output("mkdir {}".format(daos_logs_dir))
 
     # Create a list of log files that are not directories
     non_dir_files = [
@@ -684,7 +689,7 @@ def archive_logs(avocado_logs_dir, test_yaml, args):
         "for file in {}".format(" ".join(non_dir_files)),
         "do if [ -e $file ]",
         "then if scp $file {}:{}/${{file##*/}}-$(hostname -s)".format(
-            this_host, doas_logs_dir),
+            this_host, daos_logs_dir),
         "then copied+=($file)",
         "if ! sudo rm -fr $file",
         "then ((rc++))",
@@ -721,6 +726,142 @@ def rename_logs(avocado_logs_dir, test_file):
         print(
             "Error renaming {} to {}: {}".format(
                 test_logs_dir, new_test_logs_dir, error))
+
+
+def install_debuginfos():
+    """Install debuginfo packages"""
+    import yum
+
+    yum_base = yum.YumBase()
+    yum_base.conf.assumeyes = True
+    yum_base.setCacheDir(force=True, reuse=True)
+    yum_base.repos.enableRepo('*debug*')
+
+    debuginfo_map = {'glibc':   'glibc-debuginfo-common',
+                     'libpmem': 'pmdk-debuginfo'}
+
+    # We're not using the yum API to install packages
+    # See the comments below.
+    #kwarg = {'name': 'gdb'}
+    #yum_base.install(**kwarg)
+
+    install_pkgs = [{'name': 'gdb'}, {'name': 'python-magic'}]
+
+    for pkg in ['python', 'glibc', 'daos', 'systemd', 'ndctl', 'libpmem',
+                'mercury', 'cart', 'libfabric', 'argobots']:
+        try:
+            debug_pkg = debuginfo_map[pkg]
+        except KeyError:
+            debug_pkg = pkg + "-debuginfo"
+        try:
+            pkg_data = yum_base.rpmdb.returnNewestByName(name=pkg)[0]
+        except yum.Errors.PackageSackError as expn:
+            if expn.__str__().rstrip() == "No Package Matching " + pkg:
+                print("Package {} not installed, "
+                      "skipping debuginfo".format(pkg))
+                continue
+            else:
+                raise
+        # This is how you actually use the API to add a package
+        # But since we need sudo to do it, we need to call out to yum
+        #kwarg = {'name': debug_pkg,
+        #         'version': pkg_data['version'],
+        #         'release': pkg_data['release']}
+        #yum_base.install(**kwarg)
+        install_pkgs.append({'name': debug_pkg,
+                             'version': pkg_data['version'],
+                             'release': pkg_data['release'],
+                             'epoch': pkg_data['epoch']})
+
+    # This is how you normally finish up a yum transaction, but
+    # again, we need to employ sudo
+    #yum_base.resolveDeps()
+    #yum_base.buildTransaction()
+    #yum_base.processTransaction(rpmDisplay=yum.rpmtrans.NoOutputCallBack())
+    cmd = "sudo yum -y --enablerepo=\\*debug\\* install"
+    for pkg in install_pkgs:
+        try:
+            cmd += " {}-{}-{}".format(pkg['name'], pkg['version'],
+                                      pkg['release'])
+        except KeyError:
+            cmd += " {}".format(pkg['name'])
+
+    print(get_output(cmd))
+
+
+def process_the_cores(avocado_logs_dir, test_yaml, args):
+    """Copy all of the host test log files to the avocado results directory.
+
+    Args:
+        avocado_logs_dir ([type]): [description]
+        test_yaml (str): yaml file containing host names
+        args (argparse.Namespace): command line arguments for this program
+    """
+    import fnmatch
+    import magic
+
+    this_host = socket.gethostname().split(".")[0]
+    host_list = get_hosts_from_yaml(test_yaml, args)
+    daos_cores_dir = os.path.join(avocado_logs_dir, "latest", "stacktraces")
+
+    # Create a subdirectory in the avocado logs directory for this test
+    print("Processing cores from {} in {}".format(host_list, daos_cores_dir))
+    get_output("mkdir {}".format(daos_cores_dir))
+
+    # Copy any core files that exist on the test hosts and remove them from the
+    # test host if the copy is successful.  Attempt all of the commands and
+    # report status at the end of the loop.  Include a listing of the file
+    # related to any failed command.
+    commands = [
+        "set -eu",
+        "rc=0",
+        "copied=()",
+        "for file in /var/tmp/core.*",
+        "do if [ -e $file ]",
+        "then if scp $file {}:{}/${{file##*/}}-$(hostname -s)".format(
+            this_host, daos_cores_dir),
+        "then copied+=($file)",
+        "if ! sudo rm -fr $file",
+        "then ((rc++))",
+        "ls -al $file",
+        "fi",
+        "else ((rc++))",
+        "ls -al $file",
+        "fi",
+        "fi",
+        "done",
+        "echo Copied ${copied[@]:-no files}",
+        "exit $rc",
+    ]
+    spawn_commands(host_list, "; ".join(commands))
+
+    cores = os.listdir(daos_cores_dir)
+
+    if not cores:
+        return
+
+    install_debuginfos()
+
+    def run_gdb(pattern):
+        for file in cores:
+            if not fnmatch.fnmatch(file, pattern):
+                continue
+            file_fqpn = os.path.join(daos_cores_dir, file)
+            exe_magic = magic.open(magic.NONE)
+            exe_magic.load()
+            exe_type = exe_magic.file(file_fqpn)
+            exe_name_start = exe_type.find("execfn: '") + 9
+            exe_name_end = exe_type.find("', platform:")
+            exe_name = exe_type[exe_name_start:exe_name_end]
+            get_output('gdb -ex "set pagination off"       \
+                            -ex "thread apply all bt full" \
+                            -ex "detach"                   \
+                            -ex "quit"                     \
+                        {0} {1} > {1}.stacktrace'.format(
+                            exe_name, file_fqpn))
+            os.unlink(file_fqpn)
+
+    run_gdb('core.*[0-9]')
 
 
 def get_test_category(test_file):
@@ -817,6 +958,10 @@ def main():
         action="store_true",
         help="rename the avocado test logs directory to include the test name")
     parser.add_argument(
+        "-p", "--process_cores",
+        action="store_true",
+        help="process core files from tests")
+    parser.add_argument(
         "-s", "--sparse",
         action="store_true",
         help="limit output to pass/fail")
@@ -847,7 +992,7 @@ def main():
     tag_filter, test_list = get_test_list(args.tags)
 
     # Verify at least one test was requested
-    if len(test_list) == 0:
+    if not test_list:
         print("ERROR: No tests or tags found via {}".format(args.tags))
         exit(1)
 

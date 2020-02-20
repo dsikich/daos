@@ -361,22 +361,7 @@ if [[ \"${TEST_TAG_ARG}\" =~ soak ]]; then
     fi
 fi
 
-# now run it!
-if ! ./launch.py -c -a -r -i -s -ts ${TEST_NODES} ${TEST_TAG_ARR[*]}; then
-    rc=\${PIPESTATUS[0]}
-else
-    rc=0
-fi
-copy_files=\$(clush -N -w \"${TEST_NODES}\" ls /var/tmp/core.\*)
-if [ -n \"\$copy_files\" ]; then
-    clush ${CLUSH_ARGS[@]} -B -v -l \"${REMOTE_ACCT:-jenkins}\" -R ssh \
-        -w \"${TEST_NODES}\" --rcopy \$copy_files --dest .
-fi
-
-# get stacktraces for the core files
-if ls core.*; then
-    # this really should be a debuginfo-install command but our systems lag
-    # current releases
+# install the debuginfo repo in case we get segfaults
 sudo bash -c \"cat <<\\\"EOF\\\" > /etc/yum.repos.d/CentOS-Debuginfo.repo
 [base-debuginfo]
 name=CentOS-7 - Debuginfo
@@ -385,38 +370,12 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-Debug-7
 enabled=0
 EOF\"
-    debug_pkgs=\"python glibc:glibc-debuginfo-common daos systemd ndctl
-                libpmem:pmdk-debuginfo mercury cart libfabric argobots\"
-    install_pkgs=( gdb )
-    for pkg in \$debug_pkgs; do
-        if [[ \$pkg = *:* ]]; then
-            debug_pkg=\${pkg#*:}
-            pkg=\${pkg%:*}
-        else
-            debug_pkg=\"\$pkg-debuginfo\"
-        fi
-        if ver=\"\$(rpm -q --qf %{evr} \$pkg)\"; then
-            debug_pkg+=\"-\$ver\"
-            install_pkgs+=( \$debug_pkg )
-        fi
-    done
-    sudo yum --enablerepo=\*debug\* -y install \${install_pkgs[@]}
-    for file in \$(ls core.daos_io_server.*[0-9]); do
-        exe_name=\$(file \$file | sed -e \"s/.*execfn: '\([^']*\)',.*/\1/\")
-        gdb -ex \"set pagination off\"                 \
-            -ex \"thread apply all bt full\"           \
-            -ex \"detach\"                             \
-            -ex \"quit\"                               \
-            \$exe_name \$file > \$file.stacktrace
-            rm -f \$file
-    done
-    for file in \$(ls core.*[0-9]); do
-        gdb -ex \"set pagination off\"                 \
-            -ex \"thread apply all bt full\"           \
-            -ex \"detach\"                             \
-            -ex \"quit\"                               \
-            /usr/bin/python2 \$file > \$file.stacktrace
-    done
+
+# now run it!
+if ! ./launch.py -p -c -a -r -i -s -ts ${TEST_NODES} ${TEST_TAG_ARR[*]}; then
+    rc=\${PIPESTATUS[0]}
+else
+    rc=0
 fi
 
 exit \$rc"; then
