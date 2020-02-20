@@ -798,7 +798,6 @@ def process_the_cores(avocado_logs_dir, test_yaml, args):
         args (argparse.Namespace): command line arguments for this program
     """
     import fnmatch
-    import magic
 
     this_host = socket.gethostname().split(".")[0]
     host_list = get_hosts_from_yaml(test_yaml, args)
@@ -841,6 +840,8 @@ def process_the_cores(avocado_logs_dir, test_yaml, args):
         return
 
     install_debuginfos()
+
+    import magic
 
     def run_gdb(pattern):
         for file in cores:
