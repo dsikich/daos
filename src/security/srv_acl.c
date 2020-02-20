@@ -277,6 +277,132 @@ ds_sec_validate_credentials(d_iov_t *creds, Auth__Token **token)
 	return rc;
 }
 
+static uint64_t
+pool_capas_from_perms(uint64_t perms)
+{
+	uint64_t capas = 0;
+
+	if (perms & DAOS_ACL_PERM_READ)
+		capas |= POOL_CAPA_READ;
+	if ((perms & DAOS_ACL_PERM_WRITE) ||
+	    (perms & DAOS_ACL_PERM_CREATE_CONT))
+		capas |= POOL_CAPA_CREATE_CONT;
+	if ((perms & DAOS_ACL_PERM_WRITE) ||
+	    (perms & DAOS_ACL_PERM_DEL_CONT))
+		capas |= POOL_CAPA_DEL_CONT;
+
+	return capas;
+}
+
+static int
+get_capas_for_principal(struct daos_acl *acl, enum daos_acl_principal_type type,
+			const char *name, uint64_t *capas)
+{
+	struct daos_ace *ace;
+	int		rc;
+
+	D_DEBUG(DB_MGMT, "Checking ACE for principal type %d\n", type);
+
+	rc = daos_acl_get_ace_for_principal(acl, type, name, &ace);
+	if (rc != 0)
+		return rc;
+
+	*capas = pool_capas_from_perms(ace->dae_allow_perms);
+	return 0;
+}
+
+static bool
+authsys_has_group(const char *group, Auth__Sys *authsys)
+{
+	size_t i;
+
+	if (strncmp(authsys->group, group,
+		    DAOS_ACL_MAX_PRINCIPAL_LEN) == 0)
+		return true;
+
+	for (i = 0; i < authsys->n_groups; i++) {
+		if (strncmp(authsys->groups[i], group,
+			    DAOS_ACL_MAX_PRINCIPAL_LEN) == 0)
+			return true;
+	}
+
+	return false;
+}
+
+static int
+add_perms_for_principal(struct daos_acl *acl, enum daos_acl_principal_type type,
+			const char *name, uint64_t *perms)
+{
+	int		rc;
+	struct daos_ace	*ace = NULL;
+
+	rc = daos_acl_get_ace_for_principal(acl, type, name, &ace);
+	if (rc == 0)
+		*perms |= ace->dae_allow_perms;
+
+	return rc;
+}
+
+static int
+get_capas_for_groups(struct daos_acl *acl,
+		     struct ownership *ownership,
+		     Auth__Sys *authsys, uint64_t *capas)
+{
+	int		rc;
+//	int		i;
+	uint64_t	grp_perms = 0;
+	bool		found = false;
+
+	/*
+	 * Group permissions are a union of the permissions of all groups the
+	 * user is a member of, including the owner group.
+	 */
+	if (authsys_has_group(ownership->group, authsys)) {
+		rc = add_perms_for_principal(acl, DAOS_ACL_OWNER_GROUP, NULL,
+					     &grp_perms);
+		if (rc == 0)
+			found = true;
+	}
+
+//	rc = add_perms_for_principal(acl, DAOS_ACL_GROUP, authsys->group,
+//				     &grp_perms);
+//	if (rc == 0)
+//		found = true;
+//
+//	for (i = 0; i < authsys->n_groups; i++) {
+//		rc = add_perms_for_principal(acl, DAOS_ACL_GROUP,
+//					     authsys->groups[i], &grp_perms);
+//		if (rc == 0)
+//			found = true;
+//	}
+
+	if (found) {
+		*capas = pool_capas_from_perms(grp_perms);
+		return 0;
+	}
+
+	return -DER_NONEXIST;
+}
+
+static int
+get_authsys_capas(struct daos_acl *acl,
+		  struct ownership *ownership,
+		  Auth__Sys *authsys, uint64_t *capas)
+{
+	int rc;
+
+	/* If this is the owner, and there's an owner entry... */
+	if (strncmp(authsys->user, ownership->user,
+		    DAOS_ACL_MAX_PRINCIPAL_LEN) == 0) {
+		rc = get_capas_for_principal(acl, DAOS_ACL_OWNER, NULL,
+					     capas);
+		if (rc != -DER_NONEXIST)
+			return rc;
+	}
+
+	return get_capas_for_groups(acl, ownership, authsys, capas);
+}
+
 static int
 get_auth_sys_payload(Auth__Token *token, Auth__Sys **payload)
 {
@@ -337,9 +463,17 @@ ds_sec_pool_get_capabilities(uint64_t flags, d_iov_t *cred,
 	if (rc != 0)
 		return rc;
 
-	auth__sys__free_unpacked(authsys, NULL);
+	rc = get_authsys_capas(acl, ownership, authsys, capas);
+	if (rc == -DER_NONEXIST) {
+		*capas = 0; /* No permissions */
+		rc = 0;
+	}
 
-	return 0;
+	if (flags & DAOS_PC_RO)
+		*capas &= POOL_CAPAS_RO_MASK;
+
+	auth__sys__free_unpacked(authsys, NULL);
+	return rc;
 }
 
 static bool
@@ -389,38 +523,6 @@ check_access_for_principal(struct daos_acl *acl,
 		return rc;
 
 	return -DER_NO_PERM;
-}
-
-static bool
-authsys_has_group(const char *group, Auth__Sys *authsys)
-{
-	size_t i;
-
-	if (strncmp(authsys->group, group,
-		    DAOS_ACL_MAX_PRINCIPAL_LEN) == 0)
-		return true;
-
-	for (i = 0; i < authsys->n_groups; i++) {
-		if (strncmp(authsys->groups[i], group,
-			    DAOS_ACL_MAX_PRINCIPAL_LEN) == 0)
-			return true;
-	}
-
-	return false;
-}
-
-static int
-add_perms_for_principal(struct daos_acl *acl, enum daos_acl_principal_type type,
-			const char *name, uint64_t *perms)
-{
-	int		rc;
-	struct daos_ace	*ace = NULL;
-
-	rc = daos_acl_get_ace_for_principal(acl, type, name, &ace);
-	if (rc == 0)
-		*perms |= ace->dae_allow_perms;
-
-	return rc;
 }
 
 static int

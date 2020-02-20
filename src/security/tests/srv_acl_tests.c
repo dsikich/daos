@@ -676,7 +676,7 @@ expect_access_with_acl(struct daos_acl *acl, d_iov_t *cred,
 	init_default_ownership(&ownership);
 
 	assert_int_equal(ds_sec_check_pool_access(acl, &ownership, cred,
-						      requested_capas),
+						  requested_capas),
 			 0);
 }
 
@@ -1709,6 +1709,132 @@ test_pool_get_capas_bad_payload(void **state)
 	expect_pool_get_capas_bad_authsys_payload(AUTH__FLAVOR__AUTH_SYS);
 }
 
+static void
+expect_capas_with_acl(struct daos_acl *acl, d_iov_t *cred,
+		      uint64_t flags, uint64_t exp_capas)
+{
+	struct ownership	ownership;
+	uint64_t		result = -1;
+
+	init_default_ownership(&ownership);
+
+	assert_int_equal(ds_sec_pool_get_capabilities(flags, cred, &ownership,
+						      acl, &result),
+			 0);
+
+	assert_int_equal(result, exp_capas);
+}
+
+static void
+test_pool_get_capas_empty_acl(void **state)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+
+	init_default_cred(&cred);
+	acl = daos_acl_create(NULL, 0);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RO, 0);
+	/* no capabilities allowed */
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+expect_owner_capas_with_perms(uint64_t acl_perms, uint64_t flags,
+			      uint64_t exp_capas)
+{
+	struct daos_acl	*acl;
+	d_iov_t		cred;
+
+	/* Only matches owner */
+	init_valid_cred(&cred, TEST_USER, "somerandomgroup@", NULL, 0);
+	acl = get_acl_with_perms(acl_perms, 0);
+
+	expect_capas_with_acl(acl, &cred, flags, exp_capas);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_owner_success(void **state)
+{
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RO,
+				      POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				      DAOS_PC_RO, POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				      DAOS_PC_RW,
+				      POOL_CAPA_READ | POOL_CAPA_CREATE_CONT |
+				      POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				      DAOS_PC_EX,
+				      POOL_CAPA_READ | POOL_CAPA_CREATE_CONT |
+				      POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ |
+				      DAOS_ACL_PERM_CREATE_CONT,
+				      DAOS_PC_RW,
+				      POOL_CAPA_READ | POOL_CAPA_CREATE_CONT);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ |
+				      DAOS_ACL_PERM_DEL_CONT,
+				      DAOS_PC_RW,
+				      POOL_CAPA_READ | POOL_CAPA_DEL_CONT);
+}
+
+static void
+expect_group_capas_with_perms(uint64_t acl_perms, uint64_t flags,
+			      uint64_t exp_capas)
+{
+	struct daos_acl	*acl;
+	d_iov_t		cred;
+
+	/* Only matches group */
+	init_valid_cred(&cred, "randomuser@", TEST_GROUP, NULL, 0);
+	acl = get_acl_with_perms(0, acl_perms);
+
+	expect_capas_with_acl(acl, &cred, flags, exp_capas);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_group_success(void **state)
+{
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RO,
+				      POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				      DAOS_PC_RO, POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				      DAOS_PC_RW, POOL_CAPA_READ |
+				      POOL_CAPA_CREATE_CONT |
+				      POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				      DAOS_PC_EX, POOL_CAPA_READ |
+				      POOL_CAPA_CREATE_CONT |
+				      POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ |
+				      DAOS_ACL_PERM_CREATE_CONT,
+				      DAOS_PC_RW,
+				      POOL_CAPA_READ | POOL_CAPA_CREATE_CONT);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ |
+				      DAOS_ACL_PERM_DEL_CONT,
+				      DAOS_PC_RW,
+				      POOL_CAPA_READ | POOL_CAPA_DEL_CONT);
+}
+
 /* Convenience macro for unit tests */
 #define ACL_UTEST(X)	cmocka_unit_test_setup_teardown(X, srv_acl_setup, \
 							srv_acl_teardown)
@@ -1770,6 +1896,9 @@ main(void)
 		ACL_UTEST(test_pool_get_capas_validate_cred_failed),
 		ACL_UTEST(test_pool_get_capas_wrong_flavor),
 		ACL_UTEST(test_pool_get_capas_bad_payload),
+		ACL_UTEST(test_pool_get_capas_empty_acl),
+		ACL_UTEST(test_pool_get_capas_owner_success),
+		ACL_UTEST(test_pool_get_capas_group_success),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);

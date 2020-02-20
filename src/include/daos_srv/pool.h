@@ -82,6 +82,8 @@ struct ds_pool_hdl {
 #define POOL_CAPA_CREATE_CONT	(1U << 1)
 #define POOL_CAPA_DEL_CONT	(1U << 2)
 
+#define POOL_CAPAS_RO_MASK	(POOL_CAPA_READ)
+
 struct ds_pool_hdl *ds_pool_hdl_lookup(const uuid_t uuid);
 void ds_pool_hdl_put(struct ds_pool_hdl *hdl);
 
