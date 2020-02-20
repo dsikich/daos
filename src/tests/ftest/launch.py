@@ -832,7 +832,7 @@ def process_the_cores(avocado_logs_dir, test_yaml, args):
         "echo Copied ${copied[@]:-no files}",
         "exit $rc",
     ]
-    spawn_commands(host_list, "; ".join(commands))
+    spawn_commands(host_list, "; ".join(commands), timeout=600)
 
     cores = os.listdir(daos_cores_dir)
 
@@ -860,6 +860,7 @@ def process_the_cores(avocado_logs_dir, test_yaml, args):
                             -ex "quit"                     \
                         {0} {1} > {1}.stacktrace'.format(
                             exe_name, file_fqpn))
+            print("Removing {}".format(file_fqpn))
             os.unlink(file_fqpn)
 
     run_gdb('core.*[0-9]')
