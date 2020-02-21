@@ -141,7 +141,7 @@ sudo bash -c \"set -ex
 if [ \\\"\\\$(ulimit -c)\\\" != \\\"unlimited\\\" ]; then
     echo \\\"*  soft  core  unlimited\\\" >> /etc/security/limits.conf
 fi
-echo \\\"/var/tmp/core.%e.%h.%p\\\" > /proc/sys/kernel/core_pattern\"
+echo \\\"/var/tmp/core.%e.%t.%p\\\" > /proc/sys/kernel/core_pattern\"
 rm -f /var/tmp/core.*
 if [ \"\${HOSTNAME%%%%.*}\" != \"${nodes[0]}\" ]; then
     if grep /mnt/daos\\  /proc/mounts; then
