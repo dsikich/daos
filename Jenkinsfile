@@ -320,8 +320,8 @@ pipeline {
                                   fi
                                   ls -l /etc/mock
                                   lsb_release -a || true
-                                  rpm -qi mock || true
-                                  rpm -V mock || true
+                                  rpm -qi mock-core-configs || true
+                                  rpm -V mock-core-configs || true
                                   make CHROOT_NAME="opensuse-leap-15.1-x86_64" -C utils/rpms chrootbuild'''
                         }
                     }
