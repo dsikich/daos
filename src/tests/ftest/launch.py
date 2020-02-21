@@ -703,7 +703,7 @@ def archive_logs(avocado_logs_dir, test_yaml, args):
         "echo Copied ${copied[@]:-no files}",
         "exit $rc",
     ]
-    spawn_commands(host_list, "; ".join(commands))
+    spawn_commands(host_list, "; ".join(commands), timeout=900)
 
 
 def rename_logs(avocado_logs_dir, test_file):
@@ -832,7 +832,7 @@ def process_the_cores(avocado_logs_dir, test_yaml, args):
         "echo Copied ${copied[@]:-no files}",
         "exit $rc",
     ]
-    spawn_commands(host_list, "; ".join(commands), timeout=600)
+    spawn_commands(host_list, "; ".join(commands), timeout=1800)
 
     cores = os.listdir(daos_cores_dir)
 
@@ -854,12 +854,12 @@ def process_the_cores(avocado_logs_dir, test_yaml, args):
             exe_name_start = exe_type.find("execfn: '") + 9
             exe_name_end = exe_type.find("', platform:")
             exe_name = exe_type[exe_name_start:exe_name_end]
-            get_output('gdb -ex "set pagination off"       \
-                            -ex "thread apply all bt full" \
-                            -ex "detach"                   \
-                            -ex "quit"                     \
-                        {0} {1} > {1}.stacktrace'.format(
-                            exe_name, file_fqpn))
+            get_output('cd {0} && gdb -ex "set pagination off" \
+                            -ex "thread apply all bt full"     \
+                            -ex "detach"                       \
+                            -ex "quit"                         \
+                        {1} {2} > {2}.stacktrace'.format(
+                            daos_cores_dir, exe_name, file))
             print("Removing {}".format(file_fqpn))
             os.unlink(file_fqpn)
 
