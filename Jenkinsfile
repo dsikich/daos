@@ -318,6 +318,7 @@ pipeline {
                                   if git show -s --format=%B | grep "^Skip-build: true"; then
                                       exit 0
                                   fi
+                                  ls -l /etc/mock
                                   make CHROOT_NAME="opensuse-leap-15.1-x86_64" -C utils/rpms chrootbuild'''
                         }
                     }
@@ -1077,7 +1078,6 @@ pipeline {
                                       fi
                                       arts="$arts$(ls *daos{,_agent}.log* 2>/dev/null)" && arts="$arts"$'\n'
                                       arts="$arts$(ls -d install/lib/daos/TESTING/ftest/avocado/job-results/* 2>/dev/null)" && arts="$arts"$'\n'
-                                      arts="$arts$(ls install/lib/daos/TESTING/ftest/*.stacktrace 2>/dev/null || true)"
                                       if [ -n "$arts" ]; then
                                           mv $(echo $arts | tr '\n' ' ') "$STAGE_NAME/"
                                       fi
@@ -1175,7 +1175,6 @@ pipeline {
                                       fi
                                       arts="$arts$(ls *daos{,_agent}.log* 2>/dev/null)" && arts="$arts"$'\n'
                                       arts="$arts$(ls -d install/lib/daos/TESTING/ftest/avocado/job-results/* 2>/dev/null)" && arts="$arts"$'\n'
-                                      arts="$arts$(ls install/lib/daos/TESTING/ftest/*.stacktrace 2>/dev/null || true)"
                                       if [ -n "$arts" ]; then
                                           mv $(echo $arts | tr '\n' ' ') "$STAGE_NAME/"
                                       fi
