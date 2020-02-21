@@ -349,7 +349,7 @@ get_capas_for_groups(struct daos_acl *acl,
 		     Auth__Sys *authsys, uint64_t *capas)
 {
 	int		rc;
-//	int		i;
+	int		i;
 	uint64_t	grp_perms = 0;
 	bool		found = false;
 
@@ -364,17 +364,17 @@ get_capas_for_groups(struct daos_acl *acl,
 			found = true;
 	}
 
-//	rc = add_perms_for_principal(acl, DAOS_ACL_GROUP, authsys->group,
-//				     &grp_perms);
-//	if (rc == 0)
-//		found = true;
-//
-//	for (i = 0; i < authsys->n_groups; i++) {
-//		rc = add_perms_for_principal(acl, DAOS_ACL_GROUP,
-//					     authsys->groups[i], &grp_perms);
-//		if (rc == 0)
-//			found = true;
-//	}
+	rc = add_perms_for_principal(acl, DAOS_ACL_GROUP, authsys->group,
+				     &grp_perms);
+	if (rc == 0)
+		found = true;
+
+	for (i = 0; i < authsys->n_groups; i++) {
+		rc = add_perms_for_principal(acl, DAOS_ACL_GROUP,
+					     authsys->groups[i], &grp_perms);
+		if (rc == 0)
+			found = true;
+	}
 
 	if (found) {
 		*capas = pool_capas_from_perms(grp_perms);
@@ -400,6 +400,11 @@ get_authsys_capas(struct daos_acl *acl,
 			return rc;
 	}
 
+	/* didn't match the owner entry, try the user by name */
+	rc = get_capas_for_principal(acl, DAOS_ACL_USER, authsys->user, capas);
+	if (rc != -DER_NONEXIST)
+		return rc;
+
 	return get_capas_for_groups(acl, ownership, authsys, capas);
 }
 
@@ -418,6 +423,20 @@ get_auth_sys_payload(Auth__Token *token, Auth__Sys **payload)
 	}
 
 	return 0;
+}
+
+static void
+filter_capas_based_on_flags(uint64_t flags, uint64_t *capas)
+{
+	if (flags & DAOS_PC_RO)
+		*capas &= POOL_CAPAS_RO_MASK;
+	else if (!(*capas & POOL_CAPAS_RO_MASK) ||
+	         !(*capas & ~POOL_CAPAS_RO_MASK))
+		/*
+		 * User requested RW - if they don't have permissions for both
+		 * read and write capas, we shouldn't grant them any.
+		 */
+		*capas = 0;
 }
 
 int
@@ -464,132 +483,24 @@ ds_sec_pool_get_capabilities(uint64_t flags, d_iov_t *cred,
 		return rc;
 
 	rc = get_authsys_capas(acl, ownership, authsys, capas);
-	if (rc == -DER_NONEXIST) {
+
+	/*
+	 * No match found to any specific entry. If there is an Everyone entry,
+	 * we can use the capas for that.
+	 */
+	if (rc == -DER_NONEXIST)
+		rc = get_capas_for_principal(acl, DAOS_ACL_EVERYONE, NULL,
+					     capas);
+
+	if (rc == 0) {
+		filter_capas_based_on_flags(flags, capas);
+	} else if (rc == -DER_NONEXIST) {
 		*capas = 0; /* No permissions */
 		rc = 0;
 	}
 
-	if (flags & DAOS_PC_RO)
-		*capas &= POOL_CAPAS_RO_MASK;
-
 	auth__sys__free_unpacked(authsys, NULL);
 	return rc;
-}
-
-static bool
-perms_have_access(uint64_t perms, uint64_t capas)
-{
-	D_DEBUG(DB_MGMT, "Allow Perms: 0x%lx\n", perms);
-
-	if ((capas & DAOS_PC_RO) &&
-	    (perms & DAOS_ACL_PERM_READ)) {
-		D_DEBUG(DB_MGMT, "Allowing read-only access\n");
-		return true;
-	}
-
-	if ((capas & (DAOS_PC_RW | DAOS_PC_EX)) &&
-	    (perms & DAOS_ACL_PERM_READ) &&
-	    (perms & DAOS_ACL_PERM_WRITE)) {
-		D_DEBUG(DB_MGMT, "Allowing RW access\n");
-		return true;
-	}
-
-	return false;
-}
-
-static bool
-ace_has_access(struct daos_ace *ace, uint64_t capas)
-{
-	return perms_have_access(ace->dae_allow_perms, capas);
-}
-
-static int
-check_access_for_principal(struct daos_acl *acl,
-			   enum daos_acl_principal_type type,
-			   const char *name,
-			   uint64_t capas)
-{
-	struct daos_ace *ace;
-	int		rc;
-
-	D_DEBUG(DB_MGMT, "Checking ACE for principal type %d\n", type);
-
-	rc = daos_acl_get_ace_for_principal(acl, type, name, &ace);
-	if (rc == 0 && ace_has_access(ace, capas))
-		return 0;
-
-	/* ACE not found */
-	if (rc == -DER_NONEXIST)
-		return rc;
-
-	return -DER_NO_PERM;
-}
-
-static int
-check_access_for_groups(struct daos_acl *acl,
-			struct ownership *ownership,
-			Auth__Sys *authsys, uint64_t capas)
-{
-	int		rc;
-	int		i;
-	uint64_t	grp_perms = 0;
-	bool		found = false;
-
-	/*
-	 * Group permissions are a union of the permissions of all groups the
-	 * user is a member of, including the owner group.
-	 */
-	if (authsys_has_group(ownership->group, authsys)) {
-		rc = add_perms_for_principal(acl, DAOS_ACL_OWNER_GROUP, NULL,
-					     &grp_perms);
-		if (rc == 0)
-			found = true;
-	}
-
-	rc = add_perms_for_principal(acl, DAOS_ACL_GROUP, authsys->group,
-				     &grp_perms);
-	if (rc == 0)
-		found = true;
-
-	for (i = 0; i < authsys->n_groups; i++) {
-		rc = add_perms_for_principal(acl, DAOS_ACL_GROUP,
-					     authsys->groups[i], &grp_perms);
-		if (rc == 0)
-			found = true;
-	}
-
-	if (found) {
-		if (perms_have_access(grp_perms, capas))
-			return 0;
-
-		return -DER_NO_PERM;
-	}
-
-	return -DER_NONEXIST;
-}
-
-static int
-check_authsys_permissions(struct daos_acl *acl,
-			  struct ownership *ownership,
-			  Auth__Sys *authsys, uint64_t capas)
-{
-	int rc;
-
-	/* If this is the owner, and there's an owner entry... */
-	if (strncmp(authsys->user, ownership->user,
-		    DAOS_ACL_MAX_PRINCIPAL_LEN) == 0) {
-		rc = check_access_for_principal(acl, DAOS_ACL_OWNER, NULL,
-						capas);
-		if (rc != -DER_NONEXIST)
-			return rc;
-	}
-
-	rc = check_access_for_principal(acl, DAOS_ACL_USER, authsys->user,
-					capas);
-	if (rc != -DER_NONEXIST)
-		return rc;
-
-	return check_access_for_groups(acl, ownership, authsys, capas);
 }
 
 int
@@ -597,60 +508,18 @@ ds_sec_check_pool_access(struct daos_acl *acl, struct ownership *ownership,
 			 d_iov_t *cred, uint64_t capas)
 {
 	int		rc = 0;
-	Auth__Token	*token = NULL;
-	Auth__Sys	*authsys = NULL;
+	uint64_t	actual_capas = 0;
 
-	if (acl == NULL || ownership == NULL || cred == NULL) {
-		D_ERROR("NULL input, acl=0x%p, ownership=0x%p, cred=0x%p\n",
-			acl, ownership, cred);
-		return -DER_INVAL;
-	}
-
-	if (ownership->user == NULL || ownership->group == NULL) {
-		D_ERROR("Invalid ownership structure\n");
-		return -DER_INVAL;
-	}
-
-	if (daos_acl_validate(acl) != 0) {
-		D_ERROR("ACL content not valid\n");
-		return -DER_INVAL;
-	}
-
-	rc = ds_sec_validate_credentials(cred, &token);
-	if (rc != 0) {
-		D_ERROR("Failed to validate credentials, rc="DF_RC"\n",
-			DP_RC(rc));
-		return rc;
-	}
-
-	rc = get_auth_sys_payload(token, &authsys);
-	auth__token__free_unpacked(token, NULL);
+	rc = ds_sec_pool_get_capabilities(capas, cred, ownership, acl,
+					  &actual_capas);
 	if (rc != 0)
 		return rc;
 
-	/*
-	 * Check ACL for permission via AUTH_SYS credentials
-	 */
-	rc = check_authsys_permissions(acl, ownership, authsys, capas);
-	if (rc == 0)
-		goto access_allowed;
-	else if (rc != -DER_NONEXIST)
-		goto access_denied;
+	if (actual_capas == 0) {
+		D_INFO("Access denied\n");
+		return -DER_NO_PERM;
+	}
 
-	/*
-	 * Last resort - if credentials don't match any ACEs
-	 */
-	rc = check_access_for_principal(acl, DAOS_ACL_EVERYONE, NULL, capas);
-	if (rc == 0)
-		goto access_allowed;
-
-access_denied:
-	D_INFO("Access denied\n");
-	auth__sys__free_unpacked(authsys, NULL);
-	return -DER_NO_PERM;
-
-access_allowed:
 	D_INFO("Access allowed\n");
-	auth__sys__free_unpacked(authsys, NULL);
 	return 0;
 }

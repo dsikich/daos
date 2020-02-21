@@ -1835,6 +1835,635 @@ test_pool_get_capas_group_success(void **state)
 				      POOL_CAPA_READ | POOL_CAPA_DEL_CONT);
 }
 
+static void
+expect_list_capas_with_perms(uint64_t acl_perms,
+			     uint64_t flags, uint64_t exp_capas)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+	static const char	*grps[] = { "badgroup@",
+					    TEST_GROUP,
+					    "worsegroup@" };
+
+	/* Only matches group */
+	init_valid_cred(&cred, "fakeuser@", "fakegroup@", grps,
+			sizeof(grps) / sizeof(char *));
+	acl = get_acl_with_perms(0, acl_perms);
+
+	expect_capas_with_acl(acl, &cred, flags, exp_capas);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_group_list_success(void **state)
+{
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RO,
+				     POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				     DAOS_PC_RO, POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				     DAOS_PC_RW, POOL_CAPA_READ |
+				     POOL_CAPA_CREATE_CONT |
+				     POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				     DAOS_PC_EX, POOL_CAPA_READ |
+				     POOL_CAPA_CREATE_CONT |
+				     POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ |
+				     DAOS_ACL_PERM_CREATE_CONT,
+				     DAOS_PC_RW,
+				     POOL_CAPA_READ | POOL_CAPA_CREATE_CONT);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ |
+				     DAOS_ACL_PERM_DEL_CONT,
+				     DAOS_PC_RW,
+				     POOL_CAPA_READ | POOL_CAPA_DEL_CONT);
+}
+
+static void
+test_pool_get_capas_owner_overrides_group(void **state)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+
+	init_default_cred(&cred);
+	acl = get_acl_with_perms(DAOS_ACL_PERM_READ,
+				 DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE);
+
+	/* Owner-specific entry overrides group permissions */
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, 0);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_no_match(void **state)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+
+	/* Cred is neither owner user nor owner group */
+	init_valid_cred(&cred, "fakeuser@", "fakegroup@", NULL, 0);
+	acl = get_acl_with_perms(DAOS_ACL_PERM_READ, DAOS_ACL_PERM_READ);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RO, 0);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_owner_forbidden(void **state)
+{
+	expect_owner_capas_with_perms(0, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_owner_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_EX, 0);
+}
+
+static void
+test_pool_get_capas_group_forbidden(void **state)
+{
+	expect_group_capas_with_perms(0, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_group_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_EX, 0);
+}
+
+static void
+test_pool_get_capas_list_forbidden(void **state)
+{
+	expect_list_capas_with_perms(0, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_list_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_EX, 0);
+}
+
+static void
+test_pool_get_capas_no_owner_entry(void **state)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+
+	init_default_cred(&cred);
+	acl = get_acl_with_perms(0, DAOS_ACL_PERM_READ);
+	assert_int_equal(daos_acl_remove_ace(&acl, DAOS_ACL_OWNER, NULL), 0);
+
+	/*
+	 * Cred is owner and in owner group, but there's no entry for owner,
+	 * just owner group. Should still get access.
+	 */
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RO, POOL_CAPA_READ);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_no_owner_group_entry(void **state)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+
+	init_valid_cred(&cred, "fakeuser@", TEST_GROUP, NULL, 0);
+	acl = get_acl_with_perms(DAOS_ACL_PERM_READ, DAOS_ACL_PERM_READ);
+	assert_int_equal(daos_acl_remove_ace(&acl, DAOS_ACL_OWNER_GROUP, NULL),
+			 0);
+
+	/*
+	 * Cred is in owner group, but there's no entry for owner group.
+	 * So expecting no capas.
+	 */
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RO, 0);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_no_owner_group_entry_list(void **state)
+{
+	struct daos_acl		*acl;
+	d_iov_t			cred;
+	static const char	*grps[] = { TEST_GROUP };
+
+	init_valid_cred(&cred, "fakeuser@", "fakegroup@", grps, 1);
+	acl = get_acl_with_perms(DAOS_ACL_PERM_READ, DAOS_ACL_PERM_READ);
+	assert_int_equal(daos_acl_remove_ace(&acl, DAOS_ACL_OWNER_GROUP, NULL),
+			 0);
+
+	/*
+	 * Cred is in owner group, but there's no entry for owner group.
+	 * User should get no capas.
+	 */
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RO, 0);
+
+	daos_acl_free(acl);
+	daos_iov_free(&cred);
+}
+
+static void
+expect_everyone_capas_with_perms(uint64_t acl_perms,
+				 uint64_t flags,
+				 uint64_t exp_capas)
+{
+	struct daos_acl		*acl;
+	struct daos_ace		*ace;
+	d_iov_t			cred;
+
+	init_valid_cred(&cred, TEST_USER, TEST_GROUP, NULL, 0);
+	ace = daos_ace_create(DAOS_ACL_EVERYONE, NULL);
+	ace->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace->dae_allow_perms = acl_perms;
+	acl = daos_acl_create(&ace, 1);
+
+	/*
+	 * In owner and owner group... but no entries for them.
+	 * "Everyone" permissions should apply.
+	 */
+	expect_capas_with_acl(acl, &cred, flags, exp_capas);
+
+	daos_acl_free(acl);
+	daos_ace_free(ace);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_everyone_success(void **state)
+{
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RO,
+					 POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ |
+					 DAOS_ACL_PERM_WRITE,
+					 DAOS_PC_RO,
+					 POOL_CAPA_READ);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ |
+					 DAOS_ACL_PERM_WRITE,
+					 DAOS_PC_RW,
+					 POOL_CAPA_READ |
+					 POOL_CAPA_CREATE_CONT |
+					 POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ |
+					 DAOS_ACL_PERM_WRITE,
+					 DAOS_PC_EX,
+					 POOL_CAPA_READ |
+					 POOL_CAPA_CREATE_CONT |
+					 POOL_CAPA_DEL_CONT);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ |
+					 DAOS_ACL_PERM_CREATE_CONT,
+					 DAOS_PC_RW,
+					 POOL_CAPA_READ |
+					 POOL_CAPA_CREATE_CONT);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ |
+					 DAOS_ACL_PERM_DEL_CONT,
+					 DAOS_PC_RW,
+					 POOL_CAPA_READ |
+					 POOL_CAPA_DEL_CONT);
+}
+
+static void
+test_pool_get_capas_everyone_forbidden(void **state)
+{
+	expect_everyone_capas_with_perms(0, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RO, 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_READ, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_WRITE, DAOS_PC_EX, 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_RW,
+					 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_CREATE_CONT, DAOS_PC_EX,
+					 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_RW, 0);
+	srv_acl_resetup(state);
+	expect_everyone_capas_with_perms(DAOS_ACL_PERM_DEL_CONT, DAOS_PC_EX, 0);
+}
+
+static void
+test_pool_get_capas_fall_thru_everyone(void **state)
+{
+	struct daos_acl		*acl;
+	struct daos_ace		*ace;
+	d_iov_t			cred;
+	static const char	*grps[] = { "anotherbadgrp@" };
+
+	/* Cred doesn't match owner or group */
+	init_valid_cred(&cred, "baduser@", "badgrp@", grps, 1);
+	/* Owner/group entries exist with no perms */
+	acl = get_acl_with_perms(0, 0);
+
+	/* Everyone entry allowing RW access */
+	ace = daos_ace_create(DAOS_ACL_EVERYONE, NULL);
+	ace->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	assert_int_equal(daos_acl_add_ace(&acl, ace), 0);
+
+	/*
+	 * Cred doesn't match owner/group, falls thru to everyone
+	 */
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, POOL_CAPA_READ |
+			      POOL_CAPA_CREATE_CONT | POOL_CAPA_DEL_CONT);
+
+	daos_acl_free(acl);
+	daos_ace_free(ace);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_user_matches(void **state)
+{
+	struct daos_acl	*acl;
+	struct daos_ace	*ace;
+	d_iov_t		cred;
+	const char	*username = "pooluser@";
+
+	/* Ownership won't match the cred */
+	init_valid_cred(&cred, username, "somegroup@", NULL, 0);
+
+	/* User entry matches our cred */
+	ace = daos_ace_create(DAOS_ACL_USER, username);
+	ace->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	acl = daos_acl_create(&ace, 1);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW,
+			      POOL_CAPA_READ | POOL_CAPA_CREATE_CONT |
+			      POOL_CAPA_DEL_CONT);
+
+	daos_acl_free(acl);
+	daos_ace_free(ace);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_user_matches_second(void **state)
+{
+	struct daos_acl	*acl;
+	size_t		num_aces = 2;
+	struct daos_ace	*ace[num_aces];
+	d_iov_t		cred;
+	const char	*username = "pooluser@";
+
+	init_valid_cred(&cred, username, "somegroup@", NULL, 0);
+
+	/* Match is not the first in the list */
+	ace[0] = daos_ace_create(DAOS_ACL_USER, "fakeuser@");
+	ace[0]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[0]->dae_allow_perms = DAOS_ACL_PERM_READ;
+	ace[1] = daos_ace_create(DAOS_ACL_USER, username);
+	ace[1]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[1]->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	acl = daos_acl_create(ace, 2);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW,
+			      POOL_CAPA_READ | POOL_CAPA_CREATE_CONT |
+			      POOL_CAPA_DEL_CONT);
+
+	daos_acl_free(acl);
+	free_ace_list(ace, num_aces);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_owner_beats_user(void **state)
+{
+	struct daos_acl		*acl;
+	struct daos_ace		*ace;
+	d_iov_t			cred;
+
+	/* Cred user is the owner */
+	init_valid_cred(&cred, TEST_USER, "somegroup@", NULL, 0);
+
+	acl = get_acl_with_perms(DAOS_ACL_PERM_READ, DAOS_ACL_PERM_READ);
+
+	/* User entry matches our cred */
+	ace = daos_ace_create(DAOS_ACL_USER, TEST_USER);
+	ace->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	assert_int_equal(daos_acl_add_ace(&acl, ace), 0);
+
+	/*
+	 * Requesting RW - but owner ACE has RO. Owner overrides named user
+	 * even though both match.
+	 */
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, 0);
+
+	daos_acl_free(acl);
+	daos_ace_free(ace);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_user_beats_owner_grp(void **state)
+{
+	struct daos_acl		*acl;
+	struct daos_ace		*ace;
+	d_iov_t			cred;
+	const char		*username = "someuser@";
+
+	/* Cred group is the owner group */
+	init_valid_cred(&cred, username, TEST_GROUP, NULL, 0);
+
+	acl = get_acl_with_perms(DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE,
+				 DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE);
+
+	/* User entry matches our cred */
+	ace = daos_ace_create(DAOS_ACL_USER, username);
+	ace->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace->dae_allow_perms = DAOS_ACL_PERM_READ;
+	assert_int_equal(daos_acl_add_ace(&acl, ace), 0);
+
+	/*
+	 * Requesting RW - but user ACE has RO. User overrides owner-group
+	 * even though both match.
+	 * Owner-user doesn't match at all.
+	 */
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, 0);
+
+	daos_acl_free(acl);
+	daos_ace_free(ace);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_grp_matches(void **state)
+{
+	struct daos_acl		*acl;
+	struct daos_ace		*ace;
+	d_iov_t			cred;
+	const char		*grpname = "wonderfulgroup@";
+
+	/* Ownership won't match our creds */
+	init_valid_cred(&cred, "someuser@", grpname, NULL, 0);
+
+	/* Group entry matches our cred */
+	ace = daos_ace_create(DAOS_ACL_GROUP, grpname);
+	ace->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	acl = daos_acl_create(&ace, 1);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, POOL_CAPA_READ |
+			      POOL_CAPA_CREATE_CONT | POOL_CAPA_DEL_CONT);
+
+	daos_acl_free(acl);
+	daos_ace_free(ace);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_grp_matches_second(void **state)
+{
+	struct daos_acl		*acl;
+	size_t			num_aces = 2;
+	struct daos_ace		*ace[num_aces];
+	d_iov_t			cred;
+	const char		*grpname = "wonderfulgroup@";
+
+	/* Ownership won't match our creds */
+	init_valid_cred(&cred, "someuser@", grpname, NULL, 0);
+
+	/* Match is not the first in the list */
+	ace[0] = daos_ace_create(DAOS_ACL_GROUP, "fakegrp@");
+	ace[0]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[0]->dae_allow_perms = DAOS_ACL_PERM_READ;
+	ace[1] = daos_ace_create(DAOS_ACL_GROUP, grpname);
+	ace[1]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[1]->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	acl = daos_acl_create(ace, 2);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, POOL_CAPA_READ |
+			      POOL_CAPA_CREATE_CONT | POOL_CAPA_DEL_CONT);
+
+	daos_acl_free(acl);
+	free_ace_list(ace, num_aces);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_grp_matches_multiple(void **state)
+{
+	struct daos_acl		*acl;
+	size_t			num_aces = 2;
+	struct daos_ace		*ace[num_aces];
+	d_iov_t			cred;
+	static const char	*groups[] = { "group1@", "group2@" };
+
+	/* Ownership won't match our creds */
+	init_valid_cred(&cred, "someuser@", "somegroup@", groups, 2);
+
+	/* Both groups in the ACL with different perms - should be unioned */
+	ace[0] = daos_ace_create(DAOS_ACL_GROUP, groups[0]);
+	ace[0]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[0]->dae_allow_perms = DAOS_ACL_PERM_READ;
+	ace[1] = daos_ace_create(DAOS_ACL_GROUP, groups[1]);
+	ace[1]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[1]->dae_allow_perms = DAOS_ACL_PERM_WRITE;
+	acl = daos_acl_create(ace, 2);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, POOL_CAPA_READ |
+			      POOL_CAPA_CREATE_CONT | POOL_CAPA_DEL_CONT);
+
+	daos_acl_free(acl);
+	free_ace_list(ace, num_aces);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_grp_no_match(void **state)
+{
+	struct daos_acl		*acl;
+	size_t			num_aces = 3;
+	struct daos_ace		*ace[num_aces];
+	d_iov_t			cred;
+	static const char	*groups[] = { "group1@", "group2@" };
+
+	/* Not the owner */
+	init_valid_cred(&cred, "someuser@", "somegroup@", groups, 2);
+
+	/* Shouldn't match any of them */
+	ace[0] = daos_ace_create(DAOS_ACL_GROUP, "fakegrp@");
+	ace[0]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[0]->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	ace[1] = daos_ace_create(DAOS_ACL_GROUP, "fakegrp2@");
+	ace[1]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[1]->dae_allow_perms = DAOS_ACL_PERM_READ;
+	ace[2] = daos_ace_create(DAOS_ACL_OWNER_GROUP, NULL);
+	ace[2]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[2]->dae_allow_perms = DAOS_ACL_PERM_READ;
+	acl = daos_acl_create(ace, num_aces);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, 0);
+
+	daos_acl_free(acl);
+	free_ace_list(ace, num_aces);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_grp_check_includes_owner(void **state)
+{
+	struct daos_acl		*acl;
+	size_t			num_aces = 2;
+	struct daos_ace		*ace[num_aces];
+	d_iov_t			cred;
+	static const char	*groups[] = { "group1@", "group2@" };
+
+	/* Ownership matches group */
+	init_valid_cred(&cred, "someuser@", TEST_GROUP, groups, 2);
+
+	/* Should get union of owner group and named groups */
+	ace[0] = daos_ace_create(DAOS_ACL_OWNER_GROUP, NULL);
+	ace[0]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[0]->dae_allow_perms = DAOS_ACL_PERM_WRITE;
+	ace[1] = daos_ace_create(DAOS_ACL_GROUP, groups[1]);
+	ace[1]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[1]->dae_allow_perms = DAOS_ACL_PERM_READ;
+	acl = daos_acl_create(ace, 2);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RW, POOL_CAPA_READ |
+			      POOL_CAPA_CREATE_CONT | POOL_CAPA_DEL_CONT);
+
+	daos_acl_free(acl);
+	free_ace_list(ace, num_aces);
+	daos_iov_free(&cred);
+}
+
+static void
+test_pool_get_capas_grps_beat_everyone(void **state)
+{
+	struct daos_acl		*acl;
+	size_t			num_aces = 2;
+	struct daos_ace		*ace[num_aces];
+	d_iov_t			cred;
+	static const char	*groups[] = { "group1@", "group2@" };
+
+	/* Ownership doesn't match */
+	init_valid_cred(&cred, "someuser@", "somegroup@", groups, 2);
+
+	/*
+	 * "Everyone" has more privs than the group, but the matching group
+	 * privileges take priority.
+	 */
+	ace[0] = daos_ace_create(DAOS_ACL_EVERYONE, NULL);
+	ace[0]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[0]->dae_allow_perms = DAOS_ACL_PERM_READ | DAOS_ACL_PERM_WRITE;
+	ace[1] = daos_ace_create(DAOS_ACL_GROUP, groups[1]);
+	ace[1]->dae_access_types = DAOS_ACL_ACCESS_ALLOW;
+	ace[1]->dae_allow_perms = 0;
+	acl = daos_acl_create(ace, 2);
+
+	expect_capas_with_acl(acl, &cred, DAOS_PC_RO, 0);
+
+	daos_acl_free(acl);
+	free_ace_list(ace, num_aces);
+	daos_iov_free(&cred);
+}
+
 /* Convenience macro for unit tests */
 #define ACL_UTEST(X)	cmocka_unit_test_setup_teardown(X, srv_acl_setup, \
 							srv_acl_teardown)
@@ -1899,6 +2528,28 @@ main(void)
 		ACL_UTEST(test_pool_get_capas_empty_acl),
 		ACL_UTEST(test_pool_get_capas_owner_success),
 		ACL_UTEST(test_pool_get_capas_group_success),
+		ACL_UTEST(test_pool_get_capas_group_list_success),
+		ACL_UTEST(test_pool_get_capas_owner_overrides_group),
+		ACL_UTEST(test_pool_get_capas_no_match),
+		ACL_UTEST(test_pool_get_capas_owner_forbidden),
+		ACL_UTEST(test_pool_get_capas_group_forbidden),
+		ACL_UTEST(test_pool_get_capas_list_forbidden),
+		ACL_UTEST(test_pool_get_capas_no_owner_entry),
+		ACL_UTEST(test_pool_get_capas_no_owner_group_entry),
+		ACL_UTEST(test_pool_get_capas_no_owner_group_entry_list),
+		ACL_UTEST(test_pool_get_capas_everyone_success),
+		ACL_UTEST(test_pool_get_capas_everyone_forbidden),
+		ACL_UTEST(test_pool_get_capas_fall_thru_everyone),
+		ACL_UTEST(test_pool_get_capas_user_matches),
+		ACL_UTEST(test_pool_get_capas_user_matches_second),
+		ACL_UTEST(test_pool_get_capas_owner_beats_user),
+		ACL_UTEST(test_pool_get_capas_user_beats_owner_grp),
+		ACL_UTEST(test_pool_get_capas_grp_matches),
+		ACL_UTEST(test_pool_get_capas_grp_matches_second),
+		ACL_UTEST(test_pool_get_capas_grp_matches_multiple),
+		ACL_UTEST(test_pool_get_capas_grp_no_match),
+		ACL_UTEST(test_pool_get_capas_grp_check_includes_owner),
+		ACL_UTEST(test_pool_get_capas_grps_beat_everyone),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);
