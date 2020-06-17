@@ -45,6 +45,14 @@
 
 const char		*default_sysname = DAOS_DEFAULT_SYS_NAME;
 
+static enum copy_op
+copy_op_parse(const char *str)
+{
+	if (strcmp(str, "cont") == 0)
+		return COPY_CONT;
+	return -1;
+}
+
 static enum cont_op
 cont_op_parse(const char *str)
 {
@@ -464,6 +472,10 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		{"pool",	required_argument,	NULL,	'p'},
 		{"svc",		required_argument,	NULL,	'm'},
 		{"cont",	required_argument,	NULL,	'c'},
+		{"src_pool",	required_argument,	NULL,	'S'},
+		{"dst_pool",	required_argument,	NULL,	'D'},
+		{"src_cont",	required_argument,	NULL,	'C'},
+		{"dst_cont",	required_argument,	NULL,	'T'},
 		{"attr",	required_argument,	NULL,	'a'},
 		{"value",	required_argument,	NULL,	'v'},
 		{"path",	required_argument,	NULL,	'd'},
@@ -491,9 +503,10 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 	char			*cmdname = NULL;
 
 	assert(ap != NULL);
-	ap->p_op = -1;
-	ap->c_op = -1;
-	ap->o_op = -1;
+	ap->p_op  = -1;
+	ap->c_op  = -1;
+	ap->cp_op = -1;
+	ap->o_op  = -1;
 	D_STRNDUP(ap->sysname, default_sysname, strlen(default_sysname));
 	if (ap->sysname == NULL)
 		return RC_NO_HELP;
@@ -503,6 +516,13 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		ap->c_op = cont_op_parse(argv[2]);
 		if (ap->c_op == -1) {
 			fprintf(stderr, "invalid container command: %s\n",
+				argv[2]);
+			return RC_PRINT_HELP;
+		}
+	} else if (strcmp(argv[1], "copy") == 0) {
+		ap->cp_op = copy_op_parse(argv[2]);
+		if (ap->cp_op == -1) {
+			fprintf(stderr, "invalid copy command: %s\n",
 				argv[2]);
 			return RC_PRINT_HELP;
 		}
@@ -554,6 +574,38 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 			if (uuid_parse(optarg, ap->c_uuid) != 0) {
 				fprintf(stderr,
 					"failed to parse cont UUID: %s\n",
+					optarg);
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			}
+			break;
+		case 'S':
+			if (uuid_parse(optarg, ap->src_p_uuid) != 0) {
+				fprintf(stderr,
+					"failed to parse src pool UUID: %s\n",
+					optarg);
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			}
+			break;
+		case 'D':
+			if (uuid_parse(optarg, ap->dst_p_uuid) != 0) {
+				fprintf(stderr,
+					"failed to parse dst pool UUID: %s\n",
+					optarg);
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			}
+			break;
+		case 'C':
+			if (uuid_parse(optarg, ap->src_cont_uuid) != 0) {
+				fprintf(stderr,
+					"failed to parse src cont UUID: %s\n",
+					optarg);
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			}
+			break;
+		case 'T':
+			if (uuid_parse(optarg, ap->dst_cont_uuid) != 0) {
+				fprintf(stderr,
+					"failed to parse dst cont UUID: %s\n",
 					optarg);
 				D_GOTO(out_free, rc = RC_NO_HELP);
 			}
@@ -978,6 +1030,74 @@ out:
 	return rc;
 }
 
+static int
+copy_op_hdlr(struct cmd_args_s *ap)
+{
+	int			rc;
+	daos_cont_info_t	src_cont_info;
+	daos_cont_info_t	dst_cont_info;
+	enum copy_op		op;
+
+	assert(ap != NULL);
+	op = ap->cp_op;
+	rc = 0;
+
+	switch (op) {
+	case COPY_CONT:
+	        printf("\tsrc pool UUID: "DF_UUIDF"\n", DP_UUID(ap->src_p_uuid));
+	        printf("\tsrc cont UUID: "DF_UUIDF"\n", DP_UUID(ap->src_cont_uuid));
+	        printf("\tdst pool UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_p_uuid));
+	        printf("\tdst cont UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
+
+	        rc = daos_pool_connect(ap->src_p_uuid, ap->sysname, ap->mdsrv,
+			               DAOS_PC_RW, &ap->pool,
+			               NULL /* info */, NULL /* ev */);
+	        if (rc != 0) {
+		        fprintf(stderr, "failed to connect to pool: %d\n", rc);
+	        }
+                
+                /* open source container */
+	        rc = daos_cont_open(ap->pool, ap->src_cont_uuid, DAOS_COO_RW,
+			            &ap->cont, &src_cont_info, NULL);
+	        if (rc != 0) {
+		        fprintf(stderr, "src cont open failed: %d\n", rc);
+		        D_GOTO(out_disconnect, rc);
+	        }
+
+                /* TODO: List objects in src container to be copied to 
+                 * destination container */
+
+
+                /* open destination contianer */
+                /* TODO: if NOEXIST need to create it */
+
+                /* TODO: perform copy op here  
+                 *       rc = copy_cont_hdlr(ap); */
+		break;
+	default:
+		break;
+	}
+
+	/* Container close in normal and error flows: preserve rc */
+	rc = daos_cont_close(ap->cont, NULL);
+	if (rc != 0)
+		fprintf(stderr, "src container close failed: %d\n", rc);
+
+        /* close dst container */
+	/*rc = daos_cont_close(ap->dst_cont, NULL);
+	if (rc != 0)
+		fprintf(stderr, "dst container close failed: %d\n", rc);*/
+
+out_disconnect:
+	/* Pool disconnect in normal and error flows: preserve rc */
+	rc = daos_pool_disconnect(ap->pool, NULL);
+	if (rc != 0)
+		fprintf(stderr, "Pool disconnect failed : %d\n", rc);
+
+//out:
+	return rc;
+}
+
 /* For operations that take <oid>
  * invoke op-specific handler function.
  */
@@ -1139,9 +1259,10 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 
 	fprintf(stream, "daos command (v%s)\n", DAOS_VERSION);
 
-	if (argc <= 2) {
-		FIRST_LEVEL_HELP();
-	} else if (strcmp(argv[2], "pool") == 0) {
+	//if (argc <= 2 && (strcmp(argv[2], "copy") != 0)) {
+	//	FIRST_LEVEL_HELP();
+	//} else
+        if (strcmp(argv[2], "pool") == 0) {
 		fprintf(stream, "\n"
 		"pool commands:\n"
 		"	  list-containers  list all containers in pool\n"
@@ -1159,6 +1280,18 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		"	--svc=RANKS        pool service replicas like 1,2,3\n"
 		"	--attr=NAME        pool attribute name to get\n",
 			default_sysname);
+
+	} else if (strcmp(argv[2], "copy") == 0) {
+		fprintf(stream, "\n"
+		"copy commands:\n"
+		"	  copy             copy a cont\n");
+
+		fprintf(stream,
+		"copy options:\n"
+		"	--src_pool=UUID    src pool UUID\n"
+		"	--dst_pool=UUID    dst pool UUID\n"
+		"	--src_cont=UUID    src cont UUID\n"
+		"	--dst_cont=UUID    dst cont UUID\n");
 
 	} else if (strcmp(argv[2], "container") == 0 ||
 		   strcmp(argv[2], "cont") == 0) {
@@ -1303,13 +1436,17 @@ main(int argc, char *argv[])
 		help_hdlr(argc, argv, &dargs);
 		return 2;
 	} else if ((strcmp(argv[1], "container") == 0) ||
-		 (strcmp(argv[1], "cont") == 0))
+		 (strcmp(argv[1], "cont") == 0)) {
 		hdlr = cont_op_hdlr;
-	else if (strcmp(argv[1], "pool") == 0)
+	} else if ((strcmp(argv[1], "copy") == 0)) {
+		dargs.ostream = stdout;
+		hdlr = copy_op_hdlr;
+	} else if (strcmp(argv[1], "pool") == 0) {
 		hdlr = pool_op_hdlr;
-	else if ((strcmp(argv[1], "object") == 0) ||
-		 (strcmp(argv[1], "obj") == 0))
+	} else if ((strcmp(argv[1], "object") == 0) ||
+		 (strcmp(argv[1], "obj") == 0)) {
 		hdlr = obj_op_hdlr;
+        }
 
 	if (hdlr == NULL) {
 		dargs.ostream = stderr;

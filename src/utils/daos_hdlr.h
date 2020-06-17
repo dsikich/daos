@@ -44,6 +44,10 @@ enum cont_op {
 	CONT_SET_OWNER,
 };
 
+enum copy_op {
+	COPY_CONT,
+};
+
 enum pool_op {
 	POOL_LIST_CONTAINERS,
 	POOL_QUERY,
@@ -67,12 +71,19 @@ enum obj_op {
 struct cmd_args_s {
 	enum pool_op		p_op;		/* pool sub-command */
 	enum cont_op		c_op;		/* cont sub-command */
+	enum copy_op		cp_op;		/* copy sub-command */
 	enum obj_op		o_op;		/* obj sub-command */
 	char			*sysname;	/* --sys-name or --sys */
 	uuid_t			p_uuid;		/* --pool */
+	uuid_t			src_p_uuid;	/* --src_pool */
+	uuid_t			dst_p_uuid;	/* --dst_pool */
+	uuid_t			src_cont_uuid;	/* --src_cont */
+	uuid_t			dst_cont_uuid;	/* --dst_cont */
 	daos_handle_t		pool;
+	daos_handle_t		dst_pool;
 	uuid_t			c_uuid;		/* --cont */
 	daos_handle_t		cont;
+	daos_handle_t		dst_cont;
 	char			*mdsrv_str;	/* --svc */
 	d_rank_list_t		*mdsrv;
 	int			force;		/* --force */
@@ -218,5 +229,8 @@ int cont_set_owner_hdlr(struct cmd_args_s *ap);
  * int cont_del_attr_hdlr()
  * int cont_rollback_hdlr()
  */
+
+/* Copy operations */
+/* TODO: create copy_cont_hdlr function */
 
 int obj_query_hdlr(struct cmd_args_s *ap);
