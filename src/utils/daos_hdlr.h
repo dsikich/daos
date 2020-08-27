@@ -79,6 +79,10 @@ struct cmd_args_s {
 	uuid_t			dst_p_uuid;	/* --dst_pool */
 	uuid_t			src_cont_uuid;	/* --src_cont */
 	uuid_t			dst_cont_uuid;	/* --dst_cont */
+	char			*src_svc_str;	/* --src_svc */
+	d_rank_list_t		*src_svc;
+	char			*dst_svc_str;	/* --dst_svc */
+	d_rank_list_t		*dst_svc;
 	daos_handle_t		pool;
 	daos_handle_t		dst_pool;
 	uuid_t			c_uuid;		/* --cont */

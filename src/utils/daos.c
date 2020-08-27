@@ -476,6 +476,8 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		{"dst_pool",	required_argument,	NULL,	'D'},
 		{"src_cont",	required_argument,	NULL,	'C'},
 		{"dst_cont",	required_argument,	NULL,	'T'},
+		{"src_svc",	required_argument,	NULL,	'X'},
+		{"dst_svc",	required_argument,	NULL,	'x'},
 		{"attr",	required_argument,	NULL,	'a'},
 		{"value",	required_argument,	NULL,	'v'},
 		{"path",	required_argument,	NULL,	'd'},
@@ -609,6 +611,18 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 					optarg);
 				D_GOTO(out_free, rc = RC_NO_HELP);
 			}
+			break;
+		case 'X':
+			D_STRNDUP(ap->src_svc_str, optarg, strlen(optarg));
+			if (ap->src_svc_str == NULL)
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			ap->src_svc = daos_rank_list_parse(ap->src_svc_str, ",");
+			break;
+		case 'x':
+			D_STRNDUP(ap->dst_svc_str, optarg, strlen(optarg));
+			if (ap->dst_svc_str == NULL)
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			ap->dst_svc = daos_rank_list_parse(ap->dst_svc_str, ",");
 			break;
 		case 'm':
 			D_STRNDUP(ap->mdsrv_str, optarg, strlen(optarg));
@@ -785,18 +799,26 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		D_GOTO(out_free, rc = RC_NO_HELP);
 	}
 
-	/* Verify pool svc provided */
-	ARGS_VERIFY_MDSRV(ap, out_free, rc = RC_PRINT_HELP);
+        if (ap->cp_op != COPY_CONT) {
+	    /* Verify pool svc provided */
+	    ARGS_VERIFY_MDSRV(ap, out_free, rc = RC_PRINT_HELP);
+        }
 
 	D_FREE(cmdname);
 	return 0;
 
 out_free:
 	d_rank_list_free(ap->mdsrv);
+	d_rank_list_free(ap->src_svc);
+	d_rank_list_free(ap->dst_svc);
 	if (ap->sysname != NULL)
 		D_FREE(ap->sysname);
 	if (ap->mdsrv_str != NULL)
 		D_FREE(ap->mdsrv_str);
+	if (ap->src_svc_str != NULL)
+		D_FREE(ap->src_svc_str);
+	if (ap->dst_svc_str != NULL)
+		D_FREE(ap->dst_svc_str);
 	if (ap->attrname_str != NULL)
 		D_FREE(ap->attrname_str);
 	if (ap->value_str != NULL)
@@ -1053,9 +1075,11 @@ copy_op_hdlr(struct cmd_args_s *ap)
 	        printf("\tsrc cont UUID: "DF_UUIDF"\n", DP_UUID(ap->src_cont_uuid));
 	        printf("\tdst pool UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_p_uuid));
 	        printf("\tdst cont UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
+	        printf("\tsrc svc: "DF_UUIDF"\n", DP_UUID(ap->src_svc));
+	        printf("\tdst svc: "DF_UUIDF"\n", DP_UUID(ap->dst_svc));
 
 		/* connect to source pool */
-	        rc = daos_pool_connect(ap->src_p_uuid, ap->sysname, ap->mdsrv,
+	        rc = daos_pool_connect(ap->src_p_uuid, ap->sysname, ap->src_svc,
 			               DAOS_PC_RW, &ap->pool,
 			               NULL /* info */, NULL /* ev */);
 	        if (rc != 0) {
@@ -1073,7 +1097,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
 		/* if given source and destination pools are different, then connect
  		 * to the destination pool */
 		if (uuid_compare(ap->src_p_uuid, ap->dst_p_uuid) != 0) {
-	        	rc = daos_pool_connect(ap->dst_p_uuid, ap->sysname, ap->mdsrv,
+	        	rc = daos_pool_connect(ap->dst_p_uuid, ap->sysname, ap->dst_svc,
 				               DAOS_PC_RW, &ap->dst_pool,
 			       		       NULL /* info */, NULL /* ev */);
 	        	if (rc != 0) {
@@ -1769,9 +1793,13 @@ main(int argc, char *argv[])
 	rc = hdlr(&dargs);
 
 	/* Clean up dargs.mdsrv allocated in common_op_parse_hdlr() */
+	d_rank_list_free(dargs.src_svc);
+	d_rank_list_free(dargs.dst_svc);
 	d_rank_list_free(dargs.mdsrv);
 
 	D_FREE(dargs.mdsrv_str);
+	D_FREE(dargs.src_svc_str);
+	D_FREE(dargs.dst_svc_str);
 	D_FREE(dargs.sysname);
 	D_FREE(dargs.path);
 
