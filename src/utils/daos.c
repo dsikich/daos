@@ -38,6 +38,7 @@
 #include <daos/debug.h>
 #include <daos/object.h>
 #include <sys/stat.h>
+#include <hdf5.h>
 #include "daos_types.h"
 #include "daos_api.h"
 #include "daos_fs.h"
@@ -50,6 +51,14 @@ copy_op_parse(const char *str)
 {
 	if (strcmp(str, "cont") == 0)
 		return COPY_CONT;
+	return -1;
+}
+
+static enum serialize_op
+serialize_op_parse(const char *str)
+{
+	if (strcmp(str, "cont") == 0)
+		return SERIALIZE_CONT;
 	return -1;
 }
 
@@ -508,6 +517,7 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 	ap->p_op  = -1;
 	ap->c_op  = -1;
 	ap->cp_op = -1;
+	ap->serialize_op = -1;
 	ap->o_op  = -1;
 	D_STRNDUP(ap->sysname, default_sysname, strlen(default_sysname));
 	if (ap->sysname == NULL)
@@ -525,6 +535,13 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		ap->cp_op = copy_op_parse(argv[2]);
 		if (ap->cp_op == -1) {
 			fprintf(stderr, "invalid copy command: %s\n",
+				argv[2]);
+			return RC_PRINT_HELP;
+		}
+	} else if (strcmp(argv[1], "serialize") == 0) {
+		ap->serialize_op = serialize_op_parse(argv[2]);
+		if (ap->serialize_op == -1) {
+			fprintf(stderr, "invalid serialize command: %s\n",
 				argv[2]);
 			return RC_PRINT_HELP;
 		}
@@ -1415,6 +1432,292 @@ out_disconnect:
 	return rc;
 }
 
+static int
+serialize_op_hdlr(struct cmd_args_s *ap)
+{
+        //herr_t  ret;                /* Return value */
+        //hid_t file_id; 
+	int			rc;
+	daos_cont_info_t	src_cont_info;
+	enum serialize_op	op;
+
+	assert(ap != NULL);
+	op = ap->serialize_op;
+	rc = 0;
+
+	switch (op) {
+	case SERIALIZE_CONT:
+                {
+	        printf("\tsrc pool UUID: "DF_UUIDF"\n", DP_UUID(ap->src_p_uuid));
+	        printf("\tsrc cont UUID: "DF_UUIDF"\n", DP_UUID(ap->src_cont_uuid));
+
+		/* connect to source pool */
+	        rc = daos_pool_connect(ap->src_p_uuid, ap->sysname, ap->mdsrv,
+			               DAOS_PC_RW, &ap->pool,
+			               NULL /* info */, NULL /* ev */);
+	        if (rc != 0) {
+		        fprintf(stderr, "failed to connect to pool: %d\n", rc);
+	        }
+                
+                /* open source container */
+	        rc = daos_cont_open(ap->pool, ap->src_cont_uuid, DAOS_COO_RW,
+			            &ap->cont, &src_cont_info, NULL);
+	        if (rc != 0) {
+		        fprintf(stderr, "src cont open failed: %d\n", rc);
+		        D_GOTO(out_disconnect, rc);
+	        }
+                /* create h5 file */
+                hid_t file_id = H5Fcreate("container_1.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+                herr_t status = H5Fclose(file_id);
+                printf("status hdf close: %d\n", status);
+                /* List objects in src container to be copied to 
+                 * destination container */
+
+                static const int OID_ARR_SIZE = 50;
+ 		daos_obj_id_t	 oids[OID_ARR_SIZE];
+ 		daos_anchor_t	 anchor;
+ 		uint32_t	 oids_nr;
+ 		daos_handle_t	 toh;
+ 		daos_epoch_t	 epoch;
+                uint32_t         total = 0;
+
+                rc = daos_cont_create_snap(ap->cont, &epoch, NULL, NULL);
+ 		if (rc)
+ 		        fprintf(stderr, "failed to create snapshot\n");	
+
+                rc = daos_cont_open_oit(ap->cont, epoch, &toh, NULL);
+ 		D_ASSERT(rc == 0);
+
+ 		memset(&anchor, 0, sizeof(anchor));
+
+                while (1) {
+ 			oids_nr = OID_ARR_SIZE;
+ 			rc = daos_cont_list_oit(toh, oids, &oids_nr, &anchor, NULL);
+ 			D_ASSERTF(rc == 0, "%d\n", rc);
+ 			D_PRINT("returned %d oids\n", oids_nr);
+                        int i;
+
+                        /* list object ID's */
+ 			for (i = 0; i < oids_nr; i++) {
+ 				char buf[100];
+ 				D_PRINT("oid[%d] ="DF_OID"\n", total, DP_OID(oids[i]));
+				//char str_uuid[POOL_HDR_UUID_STR_LEN];
+  				//util_uuid_to_str(
+                                //snprintf(buf, 100, "%"DF_OID"\n", DP_OID(oids[i]));
+                                //printf("buf is: %s\n", buf);
+                                char oid_str[50];
+                                oid_str[] = "/oid_t";
+                                hid_t group_id1 = H5Gcreate2(file_id, oid_str, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+   				//H5Gclose(group_id1);
+                                /* open DAOS object based on oid[i] to get obj handle */
+                                daos_handle_t oh;
+                                rc = daos_obj_open(ap->cont, oids[i], 0, &oh, NULL);
+
+                                /* loop to enumerate dkeys */
+                                daos_anchor_t dkey_anchor = {0}; 
+				while (!daos_anchor_is_eof(&dkey_anchor)) {
+                         		char            dkey_enum_buf[ENUM_DESC_BUF] = {0};
+				        uint32_t        number                       = ENUM_DESC_NR;
+                                        char            dkey[ENUM_KEY_BUF]           = {0};
+	                                daos_key_desc_t dkey_kds[ENUM_DESC_NR]       = {0};
+                         		d_sg_list_t     dkey_sgl;
+                         		d_iov_t         dkey_iov;
+
+                                	dkey_sgl.sg_nr     = 1;
+	                        	dkey_sgl.sg_nr_out = 0;
+	                        	dkey_sgl.sg_iovs   = &dkey_iov;
+
+	                        	d_iov_set(&dkey_iov, dkey_enum_buf, ENUM_DESC_BUF);
+                                        memset(dkey_enum_buf, 0, sizeof(dkey_enum_buf));
+
+					/* get dkeys */
+					rc = daos_obj_list_dkey(oh, DAOS_TX_NONE, &number, dkey_kds,
+						&dkey_sgl, &dkey_anchor, NULL);
+					if (rc)
+						return daos_der2errno(rc);       
+
+					/* if no dkeys were returned move on */
+					if (number == 0)
+						continue;
+                                        char* ptr;
+					int   rc;
+                                        int   j;
+					/* parse out individual dkeys based on key length and numver of dkeys returned */
+                			for (ptr = dkey_enum_buf, j = 0; j < number; j++) {
+                               			/* Print enumerated dkeys */
+            					daos_key_t diov;
+                               			snprintf(dkey, dkey_kds[j].kd_key_len + 1, "%s", ptr);
+	                        		d_iov_set(&diov, (void*)dkey, dkey_kds[j].kd_key_len);
+	                             		printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)dkey_kds[j].kd_key_len);
+		                       	        ptr += dkey_kds[j].kd_key_len;
+						/* loop to enumerate akeys */
+                                		daos_anchor_t akey_anchor = {0}; 
+						char
+                                		hid_t group_id2 = H5Gcreate2(file_id, oid_str, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+						while (!daos_anchor_is_eof(&akey_anchor)) {
+	               		       		   	char            akey_enum_buf[ENUM_DESC_BUF] = {0};
+						        uint32_t        number                       = ENUM_DESC_NR;
+               		                        	char            akey[ENUM_KEY_BUF]           = {0};
+		               		                daos_key_desc_t akey_kds[ENUM_DESC_NR]       = {0};
+       	                		  		d_sg_list_t     akey_sgl;
+		                         		d_iov_t         akey_iov;
+
+			                               	akey_sgl.sg_nr     = 1;
+				                        akey_sgl.sg_nr_out = 0;
+		               		         	akey_sgl.sg_iovs   = &akey_iov;
+
+		       		                 	d_iov_set(&akey_iov, akey_enum_buf, ENUM_DESC_BUF);
+       	                        		        memset(akey_enum_buf, 0, sizeof(akey_enum_buf));
+
+							/* get akeys */
+							rc = daos_obj_list_akey(oh, DAOS_TX_NONE, &diov, &number, akey_kds,
+								&akey_sgl, &akey_anchor,
+							NULL);
+							if (rc)
+								return daos_der2errno(rc);       
+
+							/* if no akeys returned move on */
+							if (number == 0)
+								continue;
+       	                                		char* ptr;
+							int   rc;
+       	        		                        int   j;
+							/* parse out individual akeys based on key length and numver of dkeys returned */
+                					for (ptr = akey_enum_buf, j = 0; j < number; j++) {
+                                                                daos_key_t aiov;
+								daos_iod_t iod;
+                                                                snprintf(akey, akey_kds[j].kd_key_len + 1, "%s", ptr);
+                                                                d_iov_set(&aiov, (void*)akey, akey_kds[j].kd_key_len);
+                                                                printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)akey_kds[j].kd_key_len);
+
+								/* set iod values */
+								iod.iod_nr   = 1;
+								iod.iod_type = DAOS_IOD_SINGLE;
+								iod.iod_size = DAOS_REC_ANY;
+
+								d_iov_set(&iod.iod_name, (void*)akey, strlen(akey));
+
+								/* do fetch with sgl == NULL to check if iod type (ARRAY OR SINGLE VAL) */
+                                                                rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &iod, NULL, NULL, NULL);
+								printf("\tRC PROBE FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
+
+								/* if iod_size == 0 then this is a DAOS_IOD_ARRAY type */
+								if ((int)iod.iod_size == 0) {
+									/* enumerate all recxs since this is array type */
+                                					daos_anchor_t recx_anchor = {0}; 
+									int i;
+									while (!daos_anchor_is_eof(&recx_anchor)) {
+
+										daos_epoch_range_t	eprs[5];
+										daos_recx_t		recxs[5];
+										daos_size_t		size;
+
+										/* list all recx for this dkey/akey */
+										uint32_t number = 5;
+										rc = daos_obj_list_recx(oh, DAOS_TX_NONE, &diov,
+											&aiov, &size, &number, recxs, eprs, &recx_anchor,
+											true, NULL);
+
+										/* if no recx is returned for this dkey/akey move on */
+										if (number == 0) 
+											continue;
+										for (i = 0; i < number; i++) {
+											uint64_t    abuf_len = recxs[i].rx_nr;
+										        char        abuf[abuf_len];
+											d_sg_list_t a_sgl;
+											d_iov_t     a_iov;
+											daos_iod_t  a_iod;
+
+											/* set iod values */
+											a_iod.iod_type  = DAOS_IOD_ARRAY;
+											a_iod.iod_size  = 1;
+											a_iod.iod_nr    = 1;
+											a_iod.iod_recxs = &recxs[i];
+
+											/* set sgl values */
+											a_sgl.sg_nr     = 1;
+											a_sgl.sg_nr_out = 0;
+											a_sgl.sg_iovs   = &a_iov;
+
+											d_iov_set(&a_iod.iod_name, (void*)akey, strlen(akey));
+											d_iov_set(&a_iov, abuf, abuf_len);	
+											printf("\ti: %d iod_size: %d rx_nr:%d, rx_idx:%d\n",
+												i, (int)size, (int)recxs[i].rx_nr, (int)recxs[i].rx_idx);
+											/* fetch recx values from source */
+                                                                			rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &a_iod,
+												&a_sgl, NULL, NULL);
+											printf("\tRC ARRAY VAL FETCH: %d, SGL DATA LEN: %d\n", rc,
+												(int)a_sgl.sg_iovs[0].iov_len);
+											/* update fetched recx values and place in destination object */
+ 											/* TODO: write to hdf5 file here */
+                                                                			//rc = daos_obj_update(dst_oh, DAOS_TX_NONE, 0, &diov, 1, &a_iod,
+											//	&a_sgl, NULL);
+										}
+									}
+									
+								} else {
+									/* if iod_type is single value just fetch iod size from source
+ 									 * and update in destination object */
+								        int         sbuf_len = (int)iod.iod_size;
+									char        sbuf[sbuf_len];
+									d_sg_list_t s_sgl;
+									d_iov_t     s_iov;
+
+									/* set sgl values */
+									s_sgl.sg_nr     = 1;
+									s_sgl.sg_nr_out = 0;
+									s_sgl.sg_iovs   = &s_iov;
+									d_iov_set(&s_iov, sbuf, sbuf_len);
+                                                                	rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &iod, &s_sgl, NULL, NULL);
+									printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
+          								/* TODO: write to hdf5 file here */
+                                                                	//rc = daos_obj_update(dst_oh, DAOS_TX_NONE, 0, &diov, 1, &iod, &s_sgl, NULL);
+								}
+								/* advance to next akey returned */	
+                                                                ptr += akey_kds[j].kd_key_len;
+               			 			}
+						}
+					}
+ 				}
+				/* close source and destination object */
+                        	daos_obj_close(oh, NULL);
+ 				total++;
+ 		        }
+
+ 			if (daos_anchor_is_eof(&anchor)) {
+ 				D_PRINT("done\n");
+ 				break;
+ 			}
+                }
+		/* close object iterator */
+ 		rc = daos_cont_close_oit(toh, NULL);
+ 		D_ASSERT(rc == 0);
+                }
+                break;
+	default:
+		break;
+	}
+
+	/* Container close in normal and error flows: preserve rc */
+	rc = daos_cont_close(ap->cont, NULL);
+	if (rc != 0)
+		fprintf(stderr, "src container close failed: %d\n", rc);
+
+        /* close dst container */
+        /* TODO: close hdf5 file here */
+	//ret = H5Fclose(file_id);
+        //printf("ret after file close: %d\n", ret);
+
+out_disconnect:
+	/* Pool disconnect in normal and error flows: preserve rc */
+	rc = daos_pool_disconnect(ap->pool, NULL);
+	if (rc != 0)
+		fprintf(stderr, "Pool disconnect failed : %d\n", rc);
+//out:
+	return rc;
+}
+
+
 /* For operations that take <oid>
  * invoke op-specific handler function.
  */
@@ -1758,6 +2061,9 @@ main(int argc, char *argv[])
 	} else if ((strcmp(argv[1], "copy") == 0)) {
 		dargs.ostream = stdout;
 		hdlr = copy_op_hdlr;
+	} else if ((strcmp(argv[1], "serialize") == 0)) {
+		dargs.ostream = stdout;
+		hdlr = serialize_op_hdlr;
 	} else if (strcmp(argv[1], "pool") == 0) {
 		hdlr = pool_op_hdlr;
 	} else if ((strcmp(argv[1], "object") == 0) ||
@@ -1793,12 +2099,10 @@ main(int argc, char *argv[])
 	rc = hdlr(&dargs);
 
 	/* Clean up dargs.mdsrv allocated in common_op_parse_hdlr() */
-	d_rank_list_free(dargs.src_svc);
 	d_rank_list_free(dargs.dst_svc);
 	d_rank_list_free(dargs.mdsrv);
 
 	D_FREE(dargs.mdsrv_str);
-	D_FREE(dargs.src_svc_str);
 	D_FREE(dargs.dst_svc_str);
 	D_FREE(dargs.sysname);
 	D_FREE(dargs.path);

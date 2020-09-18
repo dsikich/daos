@@ -48,6 +48,10 @@ enum copy_op {
 	COPY_CONT,
 };
 
+enum serialize_op {
+	SERIALIZE_CONT,
+};
+
 enum pool_op {
 	POOL_LIST_CONTAINERS,
 	POOL_QUERY,
@@ -72,6 +76,7 @@ struct cmd_args_s {
 	enum pool_op		p_op;		/* pool sub-command */
 	enum cont_op		c_op;		/* cont sub-command */
 	enum copy_op		cp_op;		/* copy sub-command */
+	enum serialize_op	serialize_op;	/* serialize sub-command */
 	enum obj_op		o_op;		/* obj sub-command */
 	char			*sysname;	/* --sys-name or --sys */
 	uuid_t			p_uuid;		/* --pool */
