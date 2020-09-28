@@ -1285,7 +1285,9 @@ copy_op_hdlr(struct cmd_args_s *ap)
 								iod.iod_size = DAOS_REC_ANY;
 
 								d_iov_set(&iod.iod_name, (void*)akey, strlen(akey));
-
+                                                                /* I meant with the probe that you do a fetch (with NULL sgl)
+                                                                 * of single value type, and if that returns iod_size == 0, then
+                                                                 * a single value does not exist.*/
 								/* do fetch with sgl == NULL to check if iod type (ARRAY OR SINGLE VAL) */
                                                                 rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &iod, NULL, NULL, NULL);
 								printf("\tRC PROBE FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
