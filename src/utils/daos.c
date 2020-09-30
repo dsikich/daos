@@ -1455,10 +1455,6 @@ out_disconnect:
 static int
 serialize_op_hdlr(struct cmd_args_s *ap)
 {
-        //herr_t  ret;                /* Return value */
-        //hid_t file_id; 
-        //hid_t file;
-        //herr_t status;
 	int			rc;
 	daos_cont_info_t	src_cont_info;
 	enum serialize_op	op;
@@ -1489,11 +1485,8 @@ serialize_op_hdlr(struct cmd_args_s *ap)
 		        D_GOTO(out_disconnect, rc);
 	        }
                 /* create h5 file */
-                //hid_t file_id = H5Fcreate("container_1.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
                 hid_t file;
                 file = H5Fcreate("container_1.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-                //herr_t status = H5Fclose(file_id);
-                //printf("status hdf close: %d\n", status);
                 /* List objects in src container to be copied to 
                  * destination container */
 
@@ -1518,17 +1511,27 @@ serialize_op_hdlr(struct cmd_args_s *ap)
                 hid_t oid_memtype;
                 hid_t oid_dspace;
                 hid_t oid_dset;
-                //int64_t oid_nr = oids_nr;
-                //hsize_t oid_dims[1] = {oid_nr};     
-                /* write buffer for oid data */
-                //oid_t *oid_data;
-                //oid_data = malloc(oid_nr * sizeof(oid_t));
-                /* create oid compound dtype */
+
                 oid_memtype = H5Tcreate (H5T_COMPOUND, sizeof(oid_t));
                 H5Tinsert (oid_memtype, "OID Hi", HOFFSET (oid_t, oid_hi), H5T_NATIVE_UINT64);
                 H5Tinsert (oid_memtype, "OID Low", HOFFSET (oid_t, oid_low), H5T_NATIVE_UINT64);
                 H5Tinsert (oid_memtype, "Dkey Offset", HOFFSET (oid_t, dkey_offset), H5T_NATIVE_UINT64);
-                while (1) {
+
+                /* for dkeys */
+                hid_t dkey_memtype;
+                hid_t dkey_vtype;
+                hid_t dkey_dspace;
+                hid_t dkey_dset;
+                dkey_memtype = H5Tcreate (H5T_COMPOUND, sizeof (dkey_t));
+                dkey_vtype = H5Tvlen_create(H5T_NATIVE_CHAR);
+                H5Tinsert(dkey_memtype, "Akey Offset",
+                    HOFFSET(dkey_t, akey_offset), H5T_NATIVE_UINT64);
+                H5Tinsert(dkey_memtype, "Dkey Value", HOFFSET(dkey_t, dkey_val),
+                    dkey_vtype);
+ 
+                /* for records */
+
+		while (1) {
  			oids_nr = OID_ARR_SIZE;
  			rc = daos_cont_list_oit(toh, oids, &oids_nr, &anchor, NULL);
  			D_ASSERTF(rc == 0, "%d\n", rc);
@@ -1541,18 +1544,22 @@ serialize_op_hdlr(struct cmd_args_s *ap)
                         /* create data and write data to it */
                         oid_dset = H5Dcreate(file, "Oid Data", oid_memtype, oid_dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
                         printf("oid_dset: %d\n", oid_dset);
-                        //free(oid_data);
                         int i;
                         /* list object ID's */
+			uint64_t total_dkeys = 0;
+			uint64_t total_akeys = 0;
+ 		        /* realloc memory if/when number of dkeys grows */
+                        dkey_t *dkey_data = malloc(sizeof(dkey_t));
+                        oid_t *oid_data = malloc(oid_nr * sizeof(oid_t));
  			for (i = 0; i < oids_nr; i++) {
-                                 /* write buffer for oid data */
-                                 oid_t *oid_data;
-                                 /* count for total num dkeys */
-                                 uint64_t dkey_nr = 0;
-                                 oid_data = malloc(oid_nr * sizeof(oid_t));
-                                 /* create oid compound dtype */
-                                 oid_data[i].oid_hi = oids[i].hi;
-                                 oid_data[i].oid_low = oids[i].lo;
+                                /* count for total num dkeys for this oid */
+                                uint64_t dkey_nr = 0;
+                                uint64_t akey_nr = 0;
+                                /* create oid compound dtype */
+                                oid_data[i].oid_hi = oids[i].hi;
+                                printf("oid hi: %lu\n", oids[i].hi);
+                                oid_data[i].oid_low = oids[i].lo;
+                                printf("oid lo: %lu\n", oids[i].lo);
 
                                 /* TODO: figure out offset based on number of dkeys for this oid */
                                 
@@ -1564,9 +1571,13 @@ serialize_op_hdlr(struct cmd_args_s *ap)
 
                                 /* loop to enumerate dkeys */
                                 daos_anchor_t dkey_anchor = {0}; 
+                                uint64_t dkey_offset = 0;
+                                //uint64_t akey_offset = 0;
+                                /* keep track of total number of dkeys across all oids
+                                 * for calculating offset */
 				while (!daos_anchor_is_eof(&dkey_anchor)) {
                          		char            dkey_enum_buf[ENUM_DESC_BUF] = {0};
-				        uint32_t        dkey_number                  = ENUM_DESC_NR;
+				        uint32_t        dkey_number_oid              = ENUM_DESC_NR;
                                         char            dkey[ENUM_KEY_BUF]           = {0};
 	                                daos_key_desc_t dkey_kds[ENUM_DESC_NR]       = {0};
                          		d_sg_list_t     dkey_sgl;
@@ -1580,31 +1591,34 @@ serialize_op_hdlr(struct cmd_args_s *ap)
                                         memset(dkey_enum_buf, 0, sizeof(dkey_enum_buf));
 
 					/* get dkeys */
-					rc = daos_obj_list_dkey(oh, DAOS_TX_NONE, &dkey_number, dkey_kds,
+					rc = daos_obj_list_dkey(oh, DAOS_TX_NONE, &dkey_number_oid, dkey_kds,
 						&dkey_sgl, &dkey_anchor, NULL);
 					if (rc)
 						return daos_der2errno(rc);       
 
 					/* if no dkeys were returned move on */
-					if (dkey_number == 0)
+					if (dkey_number_oid == 0)
 						continue;
+                                        dkey_data = realloc(dkey_data,  dkey_number_oid * sizeof(dkey_t));
                                         char* ptr;
 					int   rc;
                                         int   j;
 					/* parse out individual dkeys based on key length and numver of dkeys returned */
-                			for (ptr = dkey_enum_buf, j = 0; j < dkey_number; j++) {
+                			for (ptr = dkey_enum_buf, j = 0; j < dkey_number_oid; j++) {
                                			/* Print enumerated dkeys */
             					daos_key_t diov;
                                			snprintf(dkey, dkey_kds[j].kd_key_len + 1, "%s", ptr);
 	                        		d_iov_set(&diov, (void*)dkey, dkey_kds[j].kd_key_len);
 	                             		printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)dkey_kds[j].kd_key_len);
+                                                dkey_data[j].dkey_val.len = dkey_kds[j].kd_key_len; 
+                                                dkey_data[j].dkey_val.p = diov.iov_buf; 
 		                       	        ptr += dkey_kds[j].kd_key_len;
 						/* loop to enumerate akeys */
                                 		daos_anchor_t akey_anchor = {0}; 
                                 		//hid_t group_id2 = H5Gcreate2(file_id, oid_str, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 						while (!daos_anchor_is_eof(&akey_anchor)) {
 	               		       		   	char            akey_enum_buf[ENUM_DESC_BUF] = {0};
-						        uint32_t        number                       = ENUM_DESC_NR;
+						        uint32_t        akey_number_oid              = ENUM_DESC_NR;
                		                        	char            akey[ENUM_KEY_BUF]           = {0};
 		               		                daos_key_desc_t akey_kds[ENUM_DESC_NR]       = {0};
        	                		  		d_sg_list_t     akey_sgl;
@@ -1618,20 +1632,19 @@ serialize_op_hdlr(struct cmd_args_s *ap)
        	                        		        memset(akey_enum_buf, 0, sizeof(akey_enum_buf));
 
 							/* get akeys */
-							rc = daos_obj_list_akey(oh, DAOS_TX_NONE, &diov, &number, akey_kds,
-								&akey_sgl, &akey_anchor,
-							NULL);
+							rc = daos_obj_list_akey(oh, DAOS_TX_NONE, &diov, &akey_number_oid, akey_kds,
+								&akey_sgl, &akey_anchor, NULL);
 							if (rc)
 								return daos_der2errno(rc);       
 
 							/* if no akeys returned move on */
-							if (number == 0)
+							if (akey_number_oid == 0)
 								continue;
        	                                		char* ptr;
 							int   rc;
        	        		                        int   j;
 							/* parse out individual akeys based on key length and numver of dkeys returned */
-                					for (ptr = akey_enum_buf, j = 0; j < number; j++) {
+                					for (ptr = akey_enum_buf, j = 0; j < akey_number_oid; j++) {
                                                                 daos_key_t aiov;
 								daos_iod_t iod;
                                                                 snprintf(akey, akey_kds[j].kd_key_len + 1, "%s", ptr);
@@ -1723,35 +1736,56 @@ serialize_op_hdlr(struct cmd_args_s *ap)
 								}
 								/* advance to next akey returned */	
                                                                 ptr += akey_kds[j].kd_key_len;
+                                                        akey_nr = akey_number_oid + akey_nr;
+                                                        printf("akey_number_oid: %lu\n", akey_number_oid);
+                                                        printf("akey nr : %lu\n", akey_nr);
+                                                        //printf("total akeys this dkey: %lu\n", (uint64_t)akey_nr);
                			 			}
+                                                        //akey_nr = akey_number_oid + akey_nr;
 						}
-					}
-                                    //dkey loop end 
-                                    /* write oid oids to hdf5 file */
-                                    herr_t status;
-                                    dkey_nr = dkey_number += dkey_nr;
-                                    uint64_t dkey_offset = oids[i] + dkey_nr;
-                                    oid_data[i].dkey_offset = dkey_nr;
 
-                                    status = H5Dwrite(oid_dset, oid_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, oid_data);
-                                    printf("status: %d\n", status);
+ 				        //total_akeys += akey_nr;
+                                        //printf("total akeys this dkey: %lu\n", (uint64_t)akey_nr);
+                                        //akey_offset = total_akeys - akey_nr;
+                                        //printf("akey offset: %lu\n", (uint64_t)akey_offset);
+                                        dkey_nr = dkey_number_oid + dkey_nr;
+                                        printf("total akeys this dkey: %lu\n", (uint64_t)akey_nr);
+					}
  				}
-				/* close source and destination object */
+ 				//total_akeys += akey_nr;
+ 				total_dkeys += dkey_nr;
+                                //printf("akey total this oid: %lu\n", (uint64_t)akey_nr);
+                                //akey_offset = total_akeys - akey_nr;
+                                //printf("akey offset: %lu\n", (uint64_t)akey_offset);
+                                dkey_offset = total_dkeys - dkey_nr;
+                                oid_data[i].dkey_offset = dkey_offset;
+                                //int k;
+                                //for(k = 0; k < total_dkeys; k++) {
+                                 //   dkey_data[i].akey_offset = akey_offset;
+                                //}
                         	daos_obj_close(oh, NULL);
  				total++;
+                        printf("akey total: %lu\n", (uint64_t)total_akeys);
  		        }
 
+                        //printf("akey total: %lu\n", (uint64_t)total_akeys);
+                        printf("total dkeys: %lu\n", total_dkeys);
+                        /* write oid oids to hdf5 file */
+
+                        dkey_data = realloc(dkey_data,  total_dkeys * sizeof(dkey_t));
+                        hsize_t dkey_dims[1] = {total_dkeys};     
+                        dkey_dspace = H5Screate_simple(1, dkey_dims, NULL);
+                        printf("dkey dspace: %d\n", dkey_dspace);
+                        dkey_dset = H5Dcreate(file, "Dkey Data", dkey_memtype, dkey_dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+                        printf("dkey_dset: %d\n", dkey_dset);
+
+
+                        H5Dwrite(oid_dset, oid_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, oid_data);
+                        //H5Dwrite(dkey_dset, dkey_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, dkey_data);
  			if (daos_anchor_is_eof(&anchor)) {
  				D_PRINT("done\n");
  				break;
  			}
-
-                        /* write oid oids to hdf5 file */
-                        //herr_t status;
-                        //status = H5Dwrite(oid_dset, oid_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, oid_data);
-                        //printf("status: %d\n", status);
-                              
-
                 }
 		/* close object iterator */
  		rc = daos_cont_close_oit(toh, NULL);
