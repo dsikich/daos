@@ -1554,7 +1554,7 @@ serialize_op_hdlr(struct cmd_args_s *ap)
  			for (i = 0; i < oids_nr; i++) {
                                 /* count for total num dkeys for this oid */
                                 uint64_t dkey_nr = 0;
-                                uint64_t akey_nr = 0;
+                                //uint64_t akey_nr = 0;
                                 /* create oid compound dtype */
                                 oid_data[i].oid_hi = oids[i].hi;
                                 printf("oid hi: %lu\n", oids[i].hi);
@@ -1616,7 +1616,9 @@ serialize_op_hdlr(struct cmd_args_s *ap)
 						/* loop to enumerate akeys */
                                 		daos_anchor_t akey_anchor = {0}; 
                                 		//hid_t group_id2 = H5Gcreate2(file_id, oid_str, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+                                                        uint64_t akey_nr = 0;
 						while (!daos_anchor_is_eof(&akey_anchor)) {
+                                                        //uint64_t akey_nr = 0;
 	               		       		   	char            akey_enum_buf[ENUM_DESC_BUF] = {0};
 						        uint32_t        akey_number_oid              = ENUM_DESC_NR;
                		                        	char            akey[ENUM_KEY_BUF]           = {0};
@@ -1736,27 +1738,25 @@ serialize_op_hdlr(struct cmd_args_s *ap)
 								}
 								/* advance to next akey returned */	
                                                                 ptr += akey_kds[j].kd_key_len;
-                                                        akey_nr = akey_number_oid + akey_nr;
-                                                        printf("akey_number_oid: %lu\n", akey_number_oid);
-                                                        printf("akey nr : %lu\n", akey_nr);
                                                         //printf("total akeys this dkey: %lu\n", (uint64_t)akey_nr);
                			 			}
-                                                        //akey_nr = akey_number_oid + akey_nr;
+                                                        akey_nr = akey_number_oid + akey_nr;
+                                                        printf("akey nr : %lu\n", akey_nr);
+                                                        printf("akey_number_oid: %lu\n", (uint64_t)akey_number_oid);
 						}
 
- 				        //total_akeys += akey_nr;
+ 				        total_akeys += akey_nr;
                                         //printf("total akeys this dkey: %lu\n", (uint64_t)akey_nr);
                                         //akey_offset = total_akeys - akey_nr;
                                         //printf("akey offset: %lu\n", (uint64_t)akey_offset);
                                         dkey_nr = dkey_number_oid + dkey_nr;
-                                        printf("total akeys this dkey: %lu\n", (uint64_t)akey_nr);
 					}
  				}
  				//total_akeys += akey_nr;
  				total_dkeys += dkey_nr;
                                 //printf("akey total this oid: %lu\n", (uint64_t)akey_nr);
-                                //akey_offset = total_akeys - akey_nr;
-                                //printf("akey offset: %lu\n", (uint64_t)akey_offset);
+                                akey_offset = total_akeys - akey_nr;
+                                printf("akey offset: %lu\n", (uint64_t)akey_offset);
                                 dkey_offset = total_dkeys - dkey_nr;
                                 oid_data[i].dkey_offset = dkey_offset;
                                 //int k;
