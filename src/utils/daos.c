@@ -48,11 +48,11 @@ const char		*default_sysname = DAOS_DEFAULT_SYS_NAME;
 static enum copy_op
 copy_op_parse(const char *str)
 {
-	if (strcmp(str, "cont") == 0)
+	if (strcmp(str, "copy") == 0)
 		return COPY_CONT;
 	return -1;
 }
-
+#if 0
 static enum cont_op
 cont_op_parse(const char *str)
 {
@@ -100,7 +100,7 @@ cont_op_parse(const char *str)
 		return CONT_SET_OWNER;
 	return -1;
 }
-
+#endif
 /* Pool operations read-only here. See dmg for full pool management */
 static enum pool_op
 pool_op_parse(const char *str)
@@ -515,19 +515,21 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 
 	if ((strcmp(argv[1], "container") == 0) ||
 	    (strcmp(argv[1], "cont") == 0)) {
-		ap->c_op = cont_op_parse(argv[2]);
-		if (ap->c_op == -1) {
+		ap->cp_op = copy_op_parse(argv[2]);
+		//ap->c_op = cont_op_parse(argv[2]);
+		//if (ap->c_op == -1) {
+		if (ap->cp_op == -1) {
 			fprintf(stderr, "invalid container command: %s\n",
 				argv[2]);
 			return RC_PRINT_HELP;
 		}
-	} else if (strcmp(argv[1], "copy") == 0) {
+	/*} else if (strcmp(argv[1], "copy") == 0) {
 		ap->cp_op = copy_op_parse(argv[2]);
 		if (ap->cp_op == -1) {
 			fprintf(stderr, "invalid copy command: %s\n",
 				argv[2]);
 			return RC_PRINT_HELP;
-		}
+		}*/
 	} else if (strcmp(argv[1], "pool") == 0) {
 		ap->p_op = pool_op_parse(argv[2]);
 		if (ap->p_op == -1) {
@@ -892,7 +894,7 @@ pool_op_hdlr(struct cmd_args_s *ap)
 out:
 	return rc;
 }
-
+#if 0
 static int
 cont_op_hdlr(struct cmd_args_s *ap)
 {
@@ -1051,7 +1053,7 @@ out_disconnect:
 out:
 	return rc;
 }
-
+#endif
 #define ENUM_KEY_BUF		32 /* size of each dkey/akey */
 #define ENUM_LARGE_KEY_BUF	(512 * 1024) /* 512k large key */
 #define ENUM_DESC_NR		5 /* number of keys/records returned by enum */
@@ -1600,7 +1602,7 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		"	--attr=NAME        pool attribute name to get\n",
 			default_sysname);
 
-	} else if (strcmp(argv[2], "copy") == 0) {
+	/*} else if (strcmp(argv[2], "copy") == 0) {
 		fprintf(stream, "\n"
 		"copy commands:\n"
 		"	  copy             copy a cont\n");
@@ -1611,7 +1613,7 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		"	--dst_pool=UUID    dst pool UUID\n"
 		"	--src_cont=UUID    src cont UUID\n"
 		"	--dst_cont=UUID    dst cont UUID\n");
-
+*/
 	} else if (strcmp(argv[2], "container") == 0 ||
 		   strcmp(argv[2], "cont") == 0) {
 		if (argc == 3) {
@@ -1756,10 +1758,10 @@ main(int argc, char *argv[])
 		return 2;
 	} else if ((strcmp(argv[1], "container") == 0) ||
 		 (strcmp(argv[1], "cont") == 0)) {
-		hdlr = cont_op_hdlr;
-	} else if ((strcmp(argv[1], "copy") == 0)) {
-		dargs.ostream = stdout;
 		hdlr = copy_op_hdlr;
+//	} else if ((strcmp(argv[1], "copy") == 0)) {
+//		dargs.ostream = stdout;
+//		hdlr = copy_op_hdlr;
 	} else if (strcmp(argv[1], "pool") == 0) {
 		hdlr = pool_op_hdlr;
 	} else if ((strcmp(argv[1], "object") == 0) ||
