@@ -472,12 +472,12 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		{"pool",	required_argument,	NULL,	'p'},
 		{"svc",		required_argument,	NULL,	'm'},
 		{"cont",	required_argument,	NULL,	'c'},
-		{"src_pool",	required_argument,	NULL,	'S'},
-		{"dst_pool",	required_argument,	NULL,	'D'},
-		{"src_cont",	required_argument,	NULL,	'C'},
-		{"dst_cont",	required_argument,	NULL,	'T'},
-		{"src_svc",	required_argument,	NULL,	'X'},
-		{"dst_svc",	required_argument,	NULL,	'x'},
+		{"src-pool",	required_argument,	NULL,	'S'},
+		{"dst-pool",	required_argument,	NULL,	'D'},
+		{"src-cont",	required_argument,	NULL,	'C'},
+		{"dst-cont",	required_argument,	NULL,	'T'},
+		{"src-svc",	required_argument,	NULL,	'X'},
+		{"dst-svc",	required_argument,	NULL,	'x'},
 		{"attr",	required_argument,	NULL,	'a'},
 		{"value",	required_argument,	NULL,	'v'},
 		{"path",	required_argument,	NULL,	'd'},
@@ -1071,12 +1071,12 @@ copy_op_hdlr(struct cmd_args_s *ap)
 	switch (op) {
 	case COPY_CONT:
                 {
-	        printf("\tsrc pool UUID: "DF_UUIDF"\n", DP_UUID(ap->src_p_uuid));
-	        printf("\tsrc cont UUID: "DF_UUIDF"\n", DP_UUID(ap->src_cont_uuid));
-	        printf("\tdst pool UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_p_uuid));
-	        printf("\tdst cont UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
-	        printf("\tsrc svc: "DF_UUIDF"\n", DP_UUID(ap->src_svc));
-	        printf("\tdst svc: "DF_UUIDF"\n", DP_UUID(ap->dst_svc));
+	        //printf("\tsrc pool UUID: "DF_UUIDF"\n", DP_UUID(ap->src_p_uuid));
+	        //printf("\tsrc cont UUID: "DF_UUIDF"\n", DP_UUID(ap->src_cont_uuid));
+	        //printf("\tdst pool UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_p_uuid));
+	        //printf("\tdst cont UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
+	        //printf("\tsrc svc: "DF_UUIDF"\n", DP_UUID(ap->src_svc));
+	        //printf("\tdst svc: "DF_UUIDF"\n", DP_UUID(ap->dst_svc));
 
 		/* connect to source pool */
 	        rc = daos_pool_connect(ap->src_p_uuid, ap->sysname, ap->src_svc,
@@ -1190,12 +1190,12 @@ copy_op_hdlr(struct cmd_args_s *ap)
  			oids_nr = OID_ARR_SIZE;
  			rc = daos_cont_list_oit(toh, oids, &oids_nr, &anchor, NULL);
  			D_ASSERTF(rc == 0, "%d\n", rc);
- 			D_PRINT("returned %d oids\n", oids_nr);
+ 			//D_PRINT("returned %d oids\n", oids_nr);
                         int i;
 
                         /* list object ID's */
  			for (i = 0; i < oids_nr; i++) {
- 				D_PRINT("oid[%d] ="DF_OID"\n", total, DP_OID(oids[i]));
+ 				//D_PRINT("oid[%d] ="DF_OID"\n", total, DP_OID(oids[i]));
                                 /* open DAOS object based on oid[i] to get obj handle */
                                 daos_handle_t oh;
                                 rc = daos_obj_open(ap->cont, oids[i], 0, &oh, NULL);
@@ -1239,7 +1239,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
             					daos_key_t diov;
                                			snprintf(dkey, dkey_kds[j].kd_key_len + 1, "%s", ptr);
 	                        		d_iov_set(&diov, (void*)dkey, dkey_kds[j].kd_key_len);
-	                             		printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)dkey_kds[j].kd_key_len);
+	                             		//printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)dkey_kds[j].kd_key_len);
 		                       	        ptr += dkey_kds[j].kd_key_len;
 						/* loop to enumerate akeys */
                                 		daos_anchor_t akey_anchor = {0}; 
@@ -1269,7 +1269,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
 							if (number == 0)
 								continue;
        	                                		char* ptr;
-							int   rc;
+							//int   rc;
        	        		                        int   j;
 							/* parse out individual akeys based on key length and numver of dkeys returned */
                 					for (ptr = akey_enum_buf, j = 0; j < number; j++) {
@@ -1277,7 +1277,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
 								daos_iod_t iod;
                                                                 snprintf(akey, akey_kds[j].kd_key_len + 1, "%s", ptr);
                                                                 d_iov_set(&aiov, (void*)akey, akey_kds[j].kd_key_len);
-                                                                printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)akey_kds[j].kd_key_len);
+                                                                //printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)akey_kds[j].kd_key_len);
 
 								/* set iod values */
 								iod.iod_nr   = 1;
@@ -1290,7 +1290,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
                                                                  * a single value does not exist.*/
 								/* do fetch with sgl == NULL to check if iod type (ARRAY OR SINGLE VAL) */
                                                                 rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &iod, NULL, NULL, NULL);
-								printf("\tRC PROBE FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
+								//printf("\tRC PROBE FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
 
 								/* if iod_size == 0 then this is a DAOS_IOD_ARRAY type */
 								if ((int)iod.iod_size == 0) {
@@ -1332,18 +1332,18 @@ copy_op_hdlr(struct cmd_args_s *ap)
 
 											d_iov_set(&a_iod.iod_name, (void*)akey, strlen(akey));
 											d_iov_set(&a_iov, abuf, abuf_len);	
-											printf("\ti: %d iod_size: %d rx_nr:%d, rx_idx:%d\n",
-												i, (int)size, (int)recxs[i].rx_nr, (int)recxs[i].rx_idx);
+											//printf("\ti: %d iod_size: %d rx_nr:%d, rx_idx:%d\n",
+											//	i, (int)size, (int)recxs[i].rx_nr, (int)recxs[i].rx_idx);
 											/* fetch recx values from source */
                                                                 			rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &a_iod,
 												&a_sgl, NULL, NULL);
-											printf("\tRC ARRAY VAL FETCH: %d, SGL DATA LEN: %d\n", rc,
-												(int)a_sgl.sg_iovs[0].iov_len);
+											//printf("\tRC ARRAY VAL FETCH: %d, SGL DATA LEN: %d\n", rc,
+											//	(int)a_sgl.sg_iovs[0].iov_len);
 											/* update fetched recx values and place in destination object */
                                                                 			rc = daos_obj_update(dst_oh, DAOS_TX_NONE, 0, &diov, 1, &a_iod,
 												&a_sgl, NULL);
-											printf("\tRC ARRAY VAL UPDATE: %d, SGL DATA LEN: %d\n", rc,
-												(int)a_sgl.sg_iovs[0].iov_len);
+											//printf("\tRC ARRAY VAL UPDATE: %d, SGL DATA LEN: %d\n", rc,
+											//	(int)a_sgl.sg_iovs[0].iov_len);
 										}
 									}
 									
@@ -1361,9 +1361,9 @@ copy_op_hdlr(struct cmd_args_s *ap)
 									s_sgl.sg_iovs   = &s_iov;
 									d_iov_set(&s_iov, sbuf, sbuf_len);
                                                                 	rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &iod, &s_sgl, NULL, NULL);
-									printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
+									//printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
                                                                 	rc = daos_obj_update(dst_oh, DAOS_TX_NONE, 0, &diov, 1, &iod, &s_sgl, NULL);
-									printf("\tRC SINGLE VAL UPDATE: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
+									//printf("\tRC SINGLE VAL UPDATE: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
 								}
 								/* advance to next akey returned */	
                                                                 ptr += akey_kds[j].kd_key_len;
@@ -1378,7 +1378,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
  		        }
 
  			if (daos_anchor_is_eof(&anchor)) {
- 				D_PRINT("done\n");
+ 				//D_PRINT("done\n");
  				break;
  			}
                 }
