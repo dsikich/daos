@@ -1054,6 +1054,56 @@ out:
 	return rc;
 }
 #endif
+static int
+copy_create_dest(struct cmd_args_s *ap, daos_cont_info_t *dst_cont_info)
+{
+	/* query layout type of source container, if dst container needs to be
+	* created it uses the same layout type as the source */
+	daos_prop_t		*prop_query;
+	int 			rc;
+	struct daos_prop_entry	*entry;
+	char			type[10] = {};
+	uint32_t		i;
+	uint32_t		entry_type;
+
+	if (uuid_is_null(ap->dst_cont_uuid))
+		uuid_generate(ap->dst_cont_uuid);
+	prop_query = daos_prop_alloc(DAOS_PROP_CO_NUM);
+	if (prop_query == NULL) return -DER_NOMEM;
+	entry_type = DAOS_PROP_CO_MIN + 1;
+	for (i = 0; i < prop_query->dpp_nr; entry_type++) {
+		prop_query->dpp_entries[i].dpe_type = entry_type;
+		i++;
+	}
+	rc = daos_cont_query(ap->cont, NULL, prop_query, NULL);
+	if (rc)
+		fprintf(stderr, "Container query failed, result: %d\n", rc);
+	entry = daos_prop_entry_get(prop_query, DAOS_PROP_CO_LAYOUT_TYPE);
+	if (entry == NULL)
+		fprintf(stderr, "layout type property not found\n");
+	daos_unparse_ctype(entry->dpe_val, type);
+	D_PRINT("layout type -> "DF_U64"/%s\n", entry->dpe_val, type);
+
+	/* if cont open failed, try to create dst cont */
+	if (strcmp(type, "POSIX") == 0) {
+		dfs_attr_t attr;
+		attr.da_id = 0;
+		attr.da_oclass_id = ap->oclass;
+		attr.da_chunk_size = ap->chunk_size;
+		attr.da_props = ap->props;
+		rc = dfs_cont_create(ap->pool, ap->dst_cont_uuid, &attr, NULL, NULL);
+	} else {
+		rc = daos_cont_create(ap->pool, ap->dst_cont_uuid, ap->props, NULL);
+	}
+	if (rc != 0)
+		fprintf(stderr, "failed to create destination container: %d\n", rc);
+
+	/* print out created cont uuid */
+	fprintf(stdout, "Successfully created container "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
+	rc = daos_cont_open(ap->pool, ap->dst_cont_uuid, DAOS_COO_RW, &ap->dst_cont, dst_cont_info, NULL);
+	return rc;
+}
+
 #define ENUM_KEY_BUF		32 /* size of each dkey/akey */
 #define ENUM_LARGE_KEY_BUF	(512 * 1024) /* 512k large key */
 #define ENUM_DESC_NR		5 /* number of keys/records returned by enum */
@@ -1072,58 +1122,57 @@ copy_op_hdlr(struct cmd_args_s *ap)
 
 	switch (op) {
 	case COPY_CONT:
-                {
-	        //printf("\tsrc pool UUID: "DF_UUIDF"\n", DP_UUID(ap->src_p_uuid));
-	        //printf("\tsrc cont UUID: "DF_UUIDF"\n", DP_UUID(ap->src_cont_uuid));
-	        //printf("\tdst pool UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_p_uuid));
-	        //printf("\tdst cont UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
-	        //printf("\tsrc svc: "DF_UUIDF"\n", DP_UUID(ap->src_svc));
-	        //printf("\tdst svc: "DF_UUIDF"\n", DP_UUID(ap->dst_svc));
+	{
+		//printf("\tsrc pool UUID: "DF_UUIDF"\n", DP_UUID(ap->src_p_uuid));
+		//printf("\tsrc cont UUID: "DF_UUIDF"\n", DP_UUID(ap->src_cont_uuid));
+		//printf("\tdst pool UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_p_uuid));
+		//printf("\tdst cont UUID: "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
+		//printf("\tsrc svc: "DF_UUIDF"\n", DP_UUID(ap->src_svc));
+		//printf("\tdst svc: "DF_UUIDF"\n", DP_UUID(ap->dst_svc));
 
 		/* connect to source pool */
-	        rc = daos_pool_connect(ap->src_p_uuid, ap->sysname, ap->src_svc,
-			               DAOS_PC_RW, &ap->pool,
-			               NULL /* info */, NULL /* ev */);
-	        if (rc != 0) {
-		        fprintf(stderr, "failed to connect to pool: %d\n", rc);
-	        }
-                
-                /* open source container */
-	        rc = daos_cont_open(ap->pool, ap->src_cont_uuid, DAOS_COO_RW,
-			            &ap->cont, &src_cont_info, NULL);
-	        if (rc != 0) {
-		        fprintf(stderr, "src cont open failed: %d\n", rc);
-		        D_GOTO(out_disconnect, rc);
-	        }
+		rc = daos_pool_connect(ap->src_p_uuid, ap->sysname, ap->src_svc,
+				DAOS_PC_RW, &ap->pool, NULL /* info */, NULL /* ev */);
+		if (rc != 0) {
+			fprintf(stderr, "failed to connect to pool: %d\n", rc);
+		}
+		/* open source container */
+		rc = daos_cont_open(ap->pool, ap->src_cont_uuid, DAOS_COO_RW,
+			&ap->cont, &src_cont_info, NULL);
+		if (rc != 0) {
+			fprintf(stderr, "src cont open failed: %d\n", rc);
+			D_GOTO(out_disconnect, rc);
+		}
 
 		/* if given source and destination pools are different, then connect
- 		 * to the destination pool */
+		 * to the destination pool */
 		if (uuid_compare(ap->src_p_uuid, ap->dst_p_uuid) != 0) {
-	        	rc = daos_pool_connect(ap->dst_p_uuid, ap->sysname, ap->dst_svc,
-				               DAOS_PC_RW, &ap->dst_pool,
-			       		       NULL /* info */, NULL /* ev */);
-	        	if (rc != 0) {
-		        	fprintf(stderr, "failed to connect to destination pool: %d\n", rc);
-	        	}
+			rc = daos_pool_connect(ap->dst_p_uuid, ap->sysname, ap->dst_svc,
+			DAOS_PC_RW, &ap->dst_pool, NULL /* info */, NULL /* ev */);
+			if (rc != 0) {
+				fprintf(stderr, "failed to connect to destination pool: %d\n", rc);
+			}
 			if (daos_uuid_valid(ap->dst_cont_uuid)) { 
-	        		rc = daos_cont_open(ap->dst_pool, ap->dst_cont_uuid, DAOS_COO_RW,
+				rc = daos_cont_open(ap->dst_pool, ap->dst_cont_uuid, DAOS_COO_RW,
 					&ap->dst_cont, &dst_cont_info, NULL);
 			}
 		} else {
 			/* othersize the source and destination container are in the same pool */
 			if (daos_uuid_valid(ap->dst_cont_uuid)) { 
-	        		rc = daos_cont_open(ap->pool, ap->dst_cont_uuid, DAOS_COO_RW,
+				rc = daos_cont_open(ap->pool, ap->dst_cont_uuid, DAOS_COO_RW,
 					&ap->dst_cont, &dst_cont_info, NULL);
 			} else {
+				copy_create_dest(ap, &dst_cont_info);
+			#if 0
 				/* query layout type of source container, if dst container needs to be
-		 		 * created it uses the same layout type as the source */
+			 	* created it uses the same layout type as the source */
 				daos_prop_t		*prop_query;
 				struct daos_prop_entry	*entry;
 				char			type[10] = {};
 				uint32_t		i;
 				uint32_t		entry_type;
-
-	    			if (uuid_is_null(ap->dst_cont_uuid)) 
+	
+				if (uuid_is_null(ap->dst_cont_uuid))
 					uuid_generate(ap->dst_cont_uuid);
 
 				prop_query = daos_prop_alloc(DAOS_PROP_CO_NUM);
@@ -1144,7 +1193,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
 				}
 				daos_unparse_ctype(entry->dpe_val, type);
 				D_PRINT("layout type -> "DF_U64"/%s\n", entry->dpe_val, type);
-
+	
 				/* if cont open failed, try to create one */
 				/* create the dst container */
 				/** allow creating a POSIX container without a link in the UNS path */
@@ -1156,20 +1205,20 @@ copy_op_hdlr(struct cmd_args_s *ap)
 					attr.da_props = ap->props;
 					rc = dfs_cont_create(ap->pool, ap->dst_cont_uuid, &attr, NULL, NULL);
 				} else {
-					rc = daos_cont_create(ap->pool, ap->dst_cont_uuid, ap->props, NULL);
+				rc = daos_cont_create(ap->pool, ap->dst_cont_uuid, ap->props, NULL);
 				}
 				if (rc != 0) {
 					fprintf(stderr, "failed to create destination container: %d\n", rc);
 				}
 				/* print out created cont uuid */
-				fprintf(stdout, "Successfully created container "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
-	        		rc = daos_cont_open(ap->pool, ap->dst_cont_uuid, DAOS_COO_RW,
+					fprintf(stdout, "Successfully created container "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
+					rc = daos_cont_open(ap->pool, ap->dst_cont_uuid, DAOS_COO_RW,
 					&ap->dst_cont, &dst_cont_info, NULL);
+			#endif
 			}
 		}
-             
-                /* List objects in src container to be copied to 
-                 * destination container */
+       	         /* List objects in src container to be copied to 
+       	          * destination container */
 
                 static const int OID_ARR_SIZE = 50;
  		daos_obj_id_t	 oids[OID_ARR_SIZE];
