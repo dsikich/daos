@@ -24,6 +24,7 @@
 enum cont_op {
 	CONT_CREATE,
 	CONT_DESTROY,
+	CONT_COPY,
 	CONT_LIST_OBJS,
 	CONT_QUERY,
 	CONT_STAT,
@@ -42,10 +43,6 @@ enum cont_op {
 	CONT_UPDATE_ACL,
 	CONT_DELETE_ACL,
 	CONT_SET_OWNER,
-};
-
-enum copy_op {
-	COPY_CONT,
 };
 
 enum pool_op {
@@ -71,7 +68,6 @@ enum obj_op {
 struct cmd_args_s {
 	enum pool_op		p_op;		/* pool sub-command */
 	enum cont_op		c_op;		/* cont sub-command */
-	enum copy_op		cp_op;		/* copy sub-command */
 	enum obj_op		o_op;		/* obj sub-command */
 	char			*sysname;	/* --sys-name or --sys */
 	uuid_t			p_uuid;		/* --pool */
@@ -96,6 +92,8 @@ struct cmd_args_s {
 
 	/* Container unified namespace (path) related */
 	char			*path;		/* --path cont namespace */
+	char			*src_path;	/* --src-path cont namespace */
+	char			*dst_path;	/* --dst-path cont namespace */
 	daos_cont_layout_t	type;		/* --type cont type */
 	daos_oclass_id_t	oclass;		/* --oclass object class */
 	daos_size_t		chunk_size;	/* --chunk_size of cont objs */
@@ -210,6 +208,7 @@ int cont_create_hdlr(struct cmd_args_s *ap);
 int cont_create_uns_hdlr(struct cmd_args_s *ap);
 int cont_query_hdlr(struct cmd_args_s *ap);
 int cont_destroy_hdlr(struct cmd_args_s *ap);
+int cont_copy_hdlr(struct cmd_args_s *ap);
 int cont_get_prop_hdlr(struct cmd_args_s *ap);
 int cont_set_prop_hdlr(struct cmd_args_s *ap);
 int cont_list_attrs_hdlr(struct cmd_args_s *ap);
