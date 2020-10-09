@@ -1054,7 +1054,7 @@ out:
 	return rc;
 }
 #endif
-
+#if 0
 static int
 copy_recx_array(daos_key_t *dkey,
 		daos_key_t *akey,
@@ -1114,7 +1114,7 @@ copy_recx_array(daos_key_t *dkey,
 		}
 	return rc;
 }
-
+#endif
 static int
 copy_create_dest(struct cmd_args_s *ap, daos_cont_info_t *dst_cont_info)
 {
@@ -1344,7 +1344,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
 								iod.iod_type = DAOS_IOD_SINGLE;
 								iod.iod_size = DAOS_REC_ANY;
 
-								d_iov_set(&iod.iod_name, (void*)&aiov, akey_kds[j].kd_key_len);
+								d_iov_set(&iod.iod_name, (void*)akey, strlen(akey));
                                                                 /* I meant with the probe that you do a fetch (with NULL sgl)
                                                                  * of single value type, and if that returns iod_size == 0, then
                                                                  * a single value does not exist.*/
