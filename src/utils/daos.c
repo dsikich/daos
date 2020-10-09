@@ -1054,6 +1054,67 @@ out:
 	return rc;
 }
 #endif
+
+static int
+copy_recx_array(daos_key_t *dkey,
+		daos_key_t *akey,
+		daos_handle_t *src_oh,
+		daos_handle_t *dst_oh)
+{
+       	daos_anchor_t recx_anchor = {0}; 
+	int rc;
+	int i;
+	while (!daos_anchor_is_eof(&recx_anchor)) {
+		daos_epoch_range_t	eprs[5];
+		daos_recx_t		recxs[5];
+		daos_size_t		size;
+
+		/* list all recx for this dkey/akey */
+		uint32_t number = 5;
+		rc = daos_obj_list_recx(*src_oh, DAOS_TX_NONE, dkey,
+			akey, &size, &number, recxs, eprs, &recx_anchor,
+			true, NULL);
+
+		/* if no recx is returned for this dkey/akey move on */
+		if (number == 0) 
+			continue;
+		for (i = 0; i < number; i++) {
+			uint64_t    abuf_len = recxs[i].rx_nr;
+		        char        abuf[abuf_len];
+			d_sg_list_t a_sgl;
+			d_iov_t     a_iov;
+			daos_iod_t  a_iod;
+
+			/* set iod values */
+			a_iod.iod_type  = DAOS_IOD_ARRAY;
+			a_iod.iod_size  = 1;
+			a_iod.iod_nr    = 1;
+			a_iod.iod_recxs = &recxs[i];
+
+			/* set sgl values */
+			a_sgl.sg_nr     = 1;
+			a_sgl.sg_nr_out = 0;
+			a_sgl.sg_iovs   = &a_iov;
+
+			d_iov_set(&a_iod.iod_name, (void*)&akey, sizeof(akey));
+			d_iov_set(&a_iov, abuf, abuf_len);	
+			//printf("\ti: %d iod_size: %d rx_nr:%d, rx_idx:%d\n",
+			//	i, (int)size, (int)recxs[i].rx_nr, (int)recxs[i].rx_idx);
+			/* fetch recx values from source */
+                        rc = daos_obj_fetch(*src_oh, DAOS_TX_NONE, 0, dkey, 1, &a_iod,
+				&a_sgl, NULL, NULL);
+			//printf("\tRC ARRAY VAL FETCH: %d, SGL DATA LEN: %d\n", rc,
+				//(int)a_sgl.sg_iovs[0].iov_len);
+			/* update fetched recx values and place in destination object */
+                        rc = daos_obj_update(*dst_oh, DAOS_TX_NONE, 0, dkey, 1, &a_iod,
+				&a_sgl, NULL);
+			//printf("\tRC ARRAY VAL UPDATE: %d, SGL DATA LEN: %d\n", rc,
+			//	(int)a_sgl.sg_iovs[0].iov_len);
+			}
+		}
+	return rc;
+}
+
 static int
 copy_create_dest(struct cmd_args_s *ap, daos_cont_info_t *dst_cont_info)
 {
@@ -1163,62 +1224,11 @@ copy_op_hdlr(struct cmd_args_s *ap)
 					&ap->dst_cont, &dst_cont_info, NULL);
 			} else {
 				copy_create_dest(ap, &dst_cont_info);
-			#if 0
-				/* query layout type of source container, if dst container needs to be
-			 	* created it uses the same layout type as the source */
-				daos_prop_t		*prop_query;
-				struct daos_prop_entry	*entry;
-				char			type[10] = {};
-				uint32_t		i;
-				uint32_t		entry_type;
-	
-				if (uuid_is_null(ap->dst_cont_uuid))
-					uuid_generate(ap->dst_cont_uuid);
-
-				prop_query = daos_prop_alloc(DAOS_PROP_CO_NUM);
-				if (prop_query == NULL)
-					return -DER_NOMEM;
-				entry_type = DAOS_PROP_CO_MIN + 1;
-				for (i = 0; i < prop_query->dpp_nr; entry_type++) {
-					prop_query->dpp_entries[i].dpe_type = entry_type;
-					i++;
-				}
-				rc = daos_cont_query(ap->cont, NULL, prop_query, NULL);
-				if (rc) {
-					fprintf(stderr, "Container query failed, result: %d\n", rc);
-				}
-				entry = daos_prop_entry_get(prop_query, DAOS_PROP_CO_LAYOUT_TYPE);
-				if (entry == NULL) {
-					fprintf(stderr, "layout type property not found\n");
-				}
-				daos_unparse_ctype(entry->dpe_val, type);
-				D_PRINT("layout type -> "DF_U64"/%s\n", entry->dpe_val, type);
-	
-				/* if cont open failed, try to create one */
-				/* create the dst container */
-				/** allow creating a POSIX container without a link in the UNS path */
-				if (strcmp(type, "POSIX") == 0) {
-					dfs_attr_t attr;
-					attr.da_id = 0;
-					attr.da_oclass_id = ap->oclass;
-					attr.da_chunk_size = ap->chunk_size;
-					attr.da_props = ap->props;
-					rc = dfs_cont_create(ap->pool, ap->dst_cont_uuid, &attr, NULL, NULL);
-				} else {
-				rc = daos_cont_create(ap->pool, ap->dst_cont_uuid, ap->props, NULL);
-				}
-				if (rc != 0) {
-					fprintf(stderr, "failed to create destination container: %d\n", rc);
-				}
-				/* print out created cont uuid */
-					fprintf(stdout, "Successfully created container "DF_UUIDF"\n", DP_UUID(ap->dst_cont_uuid));
-					rc = daos_cont_open(ap->pool, ap->dst_cont_uuid, DAOS_COO_RW,
-					&ap->dst_cont, &dst_cont_info, NULL);
-			#endif
 			}
 		}
-       	         /* List objects in src container to be copied to 
-       	          * destination container */
+
+		/* List objects in src container to be copied to 
+		* destination container */
 
                 static const int OID_ARR_SIZE = 50;
  		daos_obj_id_t	 oids[OID_ARR_SIZE];
@@ -1236,7 +1246,6 @@ copy_op_hdlr(struct cmd_args_s *ap)
  		D_ASSERT(rc == 0);
 
  		memset(&anchor, 0, sizeof(anchor));
-
                 while (1) {
  			oids_nr = OID_ARR_SIZE;
  			rc = daos_cont_list_oit(toh, oids, &oids_nr, &anchor, NULL);
@@ -1327,24 +1336,26 @@ copy_op_hdlr(struct cmd_args_s *ap)
                                                                 daos_key_t aiov;
 								daos_iod_t iod;
                                                                 snprintf(akey, akey_kds[j].kd_key_len + 1, "%s", ptr);
-                                                                d_iov_set(&aiov, (void*)akey, akey_kds[j].kd_key_len);
-                                                                //printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)akey_kds[j].kd_key_len);
+                                                                d_iov_set(&aiov, (void*)ptr, akey_kds[j].kd_key_len);
+                                                                printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)akey_kds[j].kd_key_len);
 
 								/* set iod values */
 								iod.iod_nr   = 1;
 								iod.iod_type = DAOS_IOD_SINGLE;
 								iod.iod_size = DAOS_REC_ANY;
 
-								d_iov_set(&iod.iod_name, (void*)akey, strlen(akey));
+								d_iov_set(&iod.iod_name, (void*)&aiov, akey_kds[j].kd_key_len);
                                                                 /* I meant with the probe that you do a fetch (with NULL sgl)
                                                                  * of single value type, and if that returns iod_size == 0, then
                                                                  * a single value does not exist.*/
 								/* do fetch with sgl == NULL to check if iod type (ARRAY OR SINGLE VAL) */
                                                                 rc = daos_obj_fetch(oh, DAOS_TX_NONE, 0, &diov, 1, &iod, NULL, NULL, NULL);
-								//printf("\tRC PROBE FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
+								printf("\tRC PROBE FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
 
 								/* if iod_size == 0 then this is a DAOS_IOD_ARRAY type */
 								if ((int)iod.iod_size == 0) {
+									rc = copy_recx_array(&diov, &aiov, &oh, &dst_oh);
+								#if 0
 									/* enumerate all recxs since this is array type */
                                 					daos_anchor_t recx_anchor = {0}; 
 									int i;
@@ -1397,6 +1408,7 @@ copy_op_hdlr(struct cmd_args_s *ap)
 											//	(int)a_sgl.sg_iovs[0].iov_len);
 										}
 									}
+								#endif
 									
 								} else {
 									/* if iod_type is single value just fetch iod size from source
@@ -1435,6 +1447,10 @@ copy_op_hdlr(struct cmd_args_s *ap)
                 }
 		/* close object iterator */
  		rc = daos_cont_close_oit(toh, NULL);
+		daos_epoch_range_t epr;
+                epr.epr_lo = epoch;
+                epr.epr_hi = epoch;
+                rc = daos_cont_destroy_snap(ap->cont, epr, NULL);
  		D_ASSERT(rc == 0);
                 }
                 break;
@@ -1704,6 +1720,14 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 			"container options (destroy):\n"
 			"	--force            destroy container regardless of state\n");
 			ALL_BUT_CONT_CREATE_OPTS_HELP();
+		} else if (strcmp(argv[3], "copy") == 0) {
+			printf("HERE!!!!!!!!!!!!!!\n");
+			fprintf(stream,
+			"container options (copy):\n"
+			"	--src_pool=UUID    src pool UUID\n"
+			"	--dst_pool=UUID    dst pool UUID\n"
+			"	--src_cont=UUID    src cont UUID\n"
+			"	--dst_cont=UUID    dst cont UUID\n");
 		} else if (strcmp(argv[3], "get-attr") == 0 ||
 			   strcmp(argv[3], "set-attr") == 0 ||
 			   strcmp(argv[3], "del-attr") == 0) {
