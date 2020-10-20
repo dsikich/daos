@@ -1365,7 +1365,6 @@ copy_list_keys(daos_handle_t *src_oh,
 					ptr += akey_kds[j].kd_key_len;
 				}
 			}
-			ptr += kds[j].kd_key_len;
 		}
 	}
 	return rc;
@@ -1643,7 +1642,6 @@ serialize_list_keys(hid_t *file,
 					/* advance to next akey returned */	
 					ptr += akey_kds[i].kd_key_len;
 					(*ak_index)++;
->>>>>>> add hdf5 serialization using hyperslab
 				}
 				total_akeys_this_oid += akey_number;
 			}
