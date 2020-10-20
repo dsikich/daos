@@ -42,6 +42,7 @@
 #include <daos/rpc.h>
 #include <daos/debug.h>
 #include <daos/object.h>
+#include <hdf5.h>
 
 #include "daos_types.h"
 #include "daos_api.h"
@@ -1353,7 +1354,6 @@ copy_list_keys(daos_handle_t *src_oh,
 					* a single value does not exist.*/
 					/* do fetch with sgl == NULL to check if iod type (ARRAY OR SINGLE VAL) */
 					rc = daos_obj_fetch(*src_oh, DAOS_TX_NONE, 0, &diov, 1, &iod, NULL, NULL, NULL);
-					printf("\tRC PROBE FETCH: %d, IOD SIZE: %d\n", rc, (int)iod.iod_size);
 
 					/* if iod_size == 0 then this is a DAOS_IOD_ARRAY type */
 					if ((int)iod.iod_size == 0) {
@@ -1365,7 +1365,298 @@ copy_list_keys(daos_handle_t *src_oh,
 					ptr += akey_kds[j].kd_key_len;
 				}
 			}
+			ptr += kds[j].kd_key_len;
 		}
+	}
+	return rc;
+}
+
+static int
+serialize_recx_single(hid_t *rx_dset,
+		 hid_t *rx_dspace,
+		 daos_key_t *dkey,
+		 daos_handle_t *oh,
+		 daos_iod_t *iod)
+//static int
+//serialize_recx_single(daos_key_t *dkey,
+//		 daos_handle_t *oh,
+//		 daos_iod_t *iod)
+{
+	/* if iod_type is single value just fetch iod size from source
+	 * and update in destination object */
+	int         buf_len = (int)(*iod).iod_size;
+	char        buf[buf_len];
+	d_sg_list_t sgl;
+	d_iov_t     iov;
+	int	    rc;
+
+	/* set sgl values */
+	sgl.sg_nr     = 1;
+	sgl.sg_nr_out = 0;
+	sgl.sg_iovs   = &iov;
+	d_iov_set(&iov, buf, buf_len);
+        rc = daos_obj_fetch(*oh, DAOS_TX_NONE, 0, dkey, 1, iod, &sgl, NULL, NULL);
+	printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)(*iod).iod_size);
+	//#if 0
+	hsize_t rx_dims[1] = {1};
+	hid_t rx_memspace = H5Screate_simple(1, rx_dims, NULL);
+	/* write single val record to dataset */
+	H5Dset_extent(*rx_dset, rx_dims);
+	*rx_dspace = H5Dget_space(*rx_dset);
+	hsize_t start = 0;
+	hsize_t count = 1; 
+	H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_SET, &start, NULL, &count, NULL);
+	hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, (*iod).iod_size);
+	H5Tset_tag(rx_dtype, "Opaque dtype");
+	H5Dwrite(*rx_dset, rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
+	//#endif
+	return rc;
+}
+
+
+static int
+serialize_recx_array(hid_t *rx_dset,
+		hid_t *rx_dspace,
+		daos_key_t *dkey,
+		daos_key_t *akey,
+		daos_handle_t *oh,
+		daos_iod_t *iod)
+/*static int
+serialize_recx_array(daos_key_t *dkey,
+		daos_key_t *akey,
+		daos_handle_t *oh,
+		daos_iod_t *iod)*/
+{
+	daos_anchor_t recx_anchor = {0}; 
+	int rc;
+	int i;
+	while (!daos_anchor_is_eof(&recx_anchor)) {
+		daos_epoch_range_t	eprs[5];
+		daos_recx_t		recxs[5];
+		daos_size_t		size;
+
+		/* list all recx for this dkey/akey */
+	        uint32_t number = 1;
+		rc = daos_obj_list_recx(*oh, DAOS_TX_NONE, dkey,
+			akey, &size, &number, recxs, eprs, &recx_anchor,
+			true, NULL);
+
+		/* if no recx is returned for this dkey/akey move on */
+		if (number == 0) 
+			continue;
+		for (i = 0; i < number; i++) {
+			uint64_t    buf_len = recxs[i].rx_nr;
+		        char        buf[buf_len];
+			d_sg_list_t sgl;
+			d_iov_t     iov;
+
+			/* set iod values */
+			(*iod).iod_type  = DAOS_IOD_ARRAY;
+			(*iod).iod_size  = 1;
+			(*iod).iod_nr    = 1;
+			(*iod).iod_recxs = &recxs[i];
+
+			/* set sgl values */
+			sgl.sg_nr     = 1;
+			sgl.sg_nr_out = 0;
+			sgl.sg_iovs   = &iov;
+
+			d_iov_set(&iov, buf, buf_len);	
+			printf("\ti: %d iod_size: %d rx_nr:%d, rx_idx:%d\n",
+				i, (int)size, (int)recxs[i].rx_nr, (int)recxs[i].rx_idx);
+			/* fetch recx values from source */
+                        rc = daos_obj_fetch(*oh, DAOS_TX_NONE, 0, dkey, 1, iod,
+				&sgl, NULL, NULL);
+			printf("\tRC ARRAY VAL FETCH: %d, SGL DATA LEN: %d\n", rc,
+				(int)sgl.sg_iovs[0].iov_len);
+		//#if 0
+			/* write data to record dset */
+			hsize_t rx_dims[1] = {recxs[i].rx_nr};
+			hid_t rx_memspace = H5Screate_simple(1, rx_dims, NULL);
+			/* extend dataset */
+			H5Dset_extent(*rx_dset, rx_dims);
+			*rx_dspace = H5Dget_space(*rx_dset);
+			hsize_t start = recxs[i].rx_idx;
+			hsize_t count = recxs[i].rx_nr;
+			H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_SET, &start, NULL, &count, NULL);
+			hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, (*iod).iod_size);
+			H5Tset_tag(rx_dtype, "Opaque dtype");
+			H5Dwrite(*rx_dset, rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
+		//#endif 
+		}
+	}
+	return rc;
+}
+
+
+static int
+serialize_list_keys(hid_t *file,
+		    dkey_t **dk,
+		    uint64_t *dk_index,
+		    akey_t **ak,
+		    uint64_t *ak_index,
+		    uint64_t *dkey_offset,
+		    uint64_t *akey_offset,
+		    uint64_t *total_dkeys,
+		    uint64_t *total_akeys,
+		    daos_handle_t *oh)
+{
+	/* loop to enumerate dkeys */
+	daos_anchor_t dkey_anchor = {0}; 
+	d_sg_list_t     sgl;
+	char            enum_buf[ENUM_DESC_BUF] = {0};
+	uint32_t        dkey_number;
+	uint32_t        akey_number;
+	daos_key_desc_t kds[ENUM_DESC_NR]       = {0};
+	d_iov_t         iov;
+	int rc;
+	uint64_t total_dkeys_this_oid = 0;
+	uint64_t total_akeys_this_oid = 0;
+	while (!daos_anchor_is_eof(&dkey_anchor)) {
+		dkey_number                        = ENUM_DESC_NR;
+                char dkey[ENUM_KEY_BUF]       = {0};
+
+                sgl.sg_nr     = 1;
+	        sgl.sg_nr_out = 0;
+	        sgl.sg_iovs   = &iov;
+
+	        d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
+
+		/* get dkeys */
+		rc = daos_obj_list_dkey(*oh, DAOS_TX_NONE, &dkey_number, kds,
+			&sgl, &dkey_anchor, NULL);
+		if (rc)
+			return daos_der2errno(rc);       
+
+		/* if no dkeys were returned move on */
+		if (dkey_number == 0)
+			continue;
+		//*dk = realloc(*dk,  (dkey_number + *total_dkeys) * sizeof(dkey_t));
+		char* ptr;
+		char* dkey_data_ptr;
+		int   rc;
+		int   j;
+		/* parse out individual dkeys based on key length and numver of dkeys returned */
+               	for (ptr = enum_buf, j = 0; j < dkey_number; j++) {
+			/* Print enumerated dkeys */
+            		daos_key_t diov;
+			snprintf(dkey, kds[j].kd_key_len + 1, "%s", ptr);
+			d_iov_set(&diov, (void*)dkey, kds[j].kd_key_len);
+			printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)kds[j].kd_key_len);
+			dkey_data_ptr = (char*) malloc((int)kds[j].kd_key_len * sizeof(char));
+			memcpy(dkey_data_ptr, diov.iov_buf, (int)kds[j].kd_key_len);
+			(*dk)[*dk_index].dkey_val.len = (int)kds[j].kd_key_len; 
+			(*dk)[*dk_index].dkey_val.p = (void*)dkey_data_ptr; 
+
+			/* loop to enumerate akeys */
+			daos_anchor_t akey_anchor = {0}; 
+			while (!daos_anchor_is_eof(&akey_anchor)) {
+				char akey[ENUM_KEY_BUF] = {0};
+			        akey_number  = ENUM_DESC_NR;
+
+				memset(enum_buf, 0, sizeof(enum_buf));
+				memset(kds, 0, sizeof(kds));
+
+				sgl.sg_nr     = 1;
+				sgl.sg_nr_out = 0;
+				sgl.sg_iovs   = &iov;
+
+				d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
+
+				/* get akeys */
+				rc = daos_obj_list_akey(*oh, DAOS_TX_NONE, &diov, &akey_number, kds,
+							&sgl, &akey_anchor, NULL);
+				if (rc)
+					return daos_der2errno(rc);       
+
+				/* if no akeys returned move on */
+				if (akey_number == 0) {
+					printf("NO AKEYS\n");
+					continue;
+				}
+				//*ak = realloc(*ak,  (akey_number + *total_akeys) * sizeof(akey_t));
+				char *akey_data_ptr;
+				int i;
+				char* ptr;
+				/* parse out individual akeys based on key length and numver of dkeys returned */
+				for (ptr = enum_buf, i = 0; i < akey_number; i++) {
+					daos_key_t aiov;
+					daos_iod_t iod;
+					snprintf(akey, kds[i].kd_key_len + 1, "%s", ptr);
+					d_iov_set(&aiov, (void*)akey, kds[i].kd_key_len);
+					printf("\ti:%d akey:%s len:%d\n", i, (char*)aiov.iov_buf, (int)kds[i].kd_key_len);
+
+					akey_data_ptr = (char *)malloc((int)kds[i].kd_key_len * sizeof(char));
+					memcpy(akey_data_ptr, aiov.iov_buf, (int)kds[i].kd_key_len);
+					(*ak)[*ak_index].akey_val.len = (int)kds[i].kd_key_len; 
+					(*ak)[*ak_index].akey_val.p = (void*)akey_data_ptr; 
+
+					/* set iod values */
+					iod.iod_nr   = 1;
+					iod.iod_type = DAOS_IOD_SINGLE;
+					iod.iod_size = DAOS_REC_ANY;
+
+					d_iov_set(&iod.iod_name, (void*)akey, strlen(akey));
+					/* I meant with the probe that you do a fetch (with NULL sgl)
+					* of single value type, and if that returns iod_size == 0, then
+					* a single value does not exist.*/
+					/* do fetch with sgl == NULL to check if iod type (ARRAY OR SINGLE VAL) */
+					rc = daos_obj_fetch(*oh, DAOS_TX_NONE, 0, &diov, 1, &iod, NULL, NULL, NULL);
+
+					/* if iod_size == 0 then this is a DAOS_IOD_ARRAY type */
+					/* TODO: create a record dset for each
+					 * akey */
+					//#if 0
+					char rec_name[5];
+					snprintf(rec_name, 5, "%lu", *ak_index);
+					hsize_t rx_dims[1] = {0};
+					hsize_t rx_max_dims[1] = {H5S_UNLIMITED};
+					hid_t rx_dspace = H5Screate_simple(1, rx_dims, rx_max_dims);
+					hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
+					H5Pset_layout(plist, H5D_CHUNKED);
+					hsize_t rx_chunk_dims[1] = {100};
+					H5Pset_chunk(plist, 1, rx_chunk_dims);
+					/* create opaque dtype and set to
+					 * iod_size for this akey */
+					hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, 1);
+					H5Tset_tag(rx_dtype, "Opaque dtype");
+					hid_t rx_dset = H5Dcreate(*file, rec_name, rx_dtype, rx_dspace,
+								H5P_DEFAULT, plist, H5P_DEFAULT);
+					H5Pclose(plist);
+					H5Sclose(rx_dspace);
+					//#endif
+					if ((int)iod.iod_size == 0) {
+						// TODO: serialize recx array here
+						// rx_dset, rx_dspace
+						//rc = serialize_recx_array(&diov, &aiov, oh, &iod);
+						rc = serialize_recx_array(&rx_dset, &rx_dspace,
+									&diov, &aiov, oh, &iod);
+					} else {
+						// TODO: serialize single val here
+						printf("CALLING RECX SINGLE\n");
+						rc = serialize_recx_single(&rx_dset, &rx_dspace,
+									&diov, oh, &iod);
+						//rc = serialize_recx_single(&diov, oh, &iod);
+					}
+					/* advance to next akey returned */	
+					ptr += kds[i].kd_key_len;
+					(*ak_index)++;
+>>>>>>> add hdf5 serialization using hyperslab
+				}
+				total_akeys_this_oid += akey_number;
+			}
+			ptr += kds[j].kd_key_len;
+			(*dk_index)++;
+		}
+		total_dkeys_this_oid += dkey_number;
+	}
+	*total_dkeys = (*total_dkeys) + total_dkeys_this_oid;
+	*total_akeys = (*total_akeys) + total_akeys_this_oid;
+	*dkey_offset = (*total_dkeys) - total_dkeys_this_oid;
+	*akey_offset = (*total_akeys) - total_akeys_this_oid;
+	if ((*dk_index - 1) >= 0) {
+		(*dk)[*dk_index - 1].akey_offset = *akey_offset;
+		printf("akey offset: %lu\n", *akey_offset);
 	}
 	return rc;
 }
@@ -1577,6 +1868,191 @@ cont_copy_hdlr(struct cmd_args_s *ap)
 		if (rc != 0)
 			fprintf(stderr, "dst Pool disconnect failed : %d\n", rc);
 	}
+	return rc;
+}
+
+int
+cont_serialize_hdlr(struct cmd_args_s *ap)
+{
+	int rc;
+	printf("\tpool UUID: "DF_UUIDF"\n", DP_UUID(ap->p_uuid));
+	printf("\tcont UUID: "DF_UUIDF"\n", DP_UUID(ap->c_uuid));
+	printf("\tsvc: "DF_UUIDF"\n", DP_UUID(ap->mdsrv));
+	daos_cont_info_t	cont_info;
+
+	struct duns_attr_t dattr = {0};
+        if (ap->path != NULL) {
+		/* Resolve pool, container UUIDs from path if needed */
+		rc = duns_resolve_path(ap->path, &dattr);
+		if (rc) {
+			fprintf(stderr, "could not resolve pool, container "
+					"by path: %s\n", ap->path);
+			//D_GOTO(out, rc);
+		}
+		ap->type = dattr.da_type;
+		uuid_copy(ap->p_uuid, dattr.da_puuid);
+	}
+
+	/* connect to source pool */
+	rc = daos_pool_connect(ap->p_uuid, ap->sysname, ap->mdsrv,
+			DAOS_PC_RW, &ap->pool, NULL /* info */, NULL /* ev */);
+	if (rc != 0) {
+		fprintf(stderr, "failed to connect to pool: %d\n", rc);
+	}
+	/* open source container */
+	rc = daos_cont_open(ap->pool, ap->c_uuid, DAOS_COO_RW,
+		&ap->cont, &cont_info, NULL);
+	if (rc != 0) {
+		fprintf(stderr, "src cont open failed: %d\n", rc);
+	}
+
+	/* TODO: setup HDF5 */
+	/* create h5 file */
+	hid_t file;
+	file = H5Fcreate("container.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+
+	/* OID Data */
+	hid_t oid_memtype;
+	hid_t oid_dspace;
+	hid_t oid_dset;
+	
+	oid_memtype = H5Tcreate (H5T_COMPOUND, sizeof(oid_t));
+	H5Tinsert (oid_memtype, "OID Hi", HOFFSET (oid_t, oid_hi), H5T_NATIVE_UINT64);
+	H5Tinsert (oid_memtype, "OID Low", HOFFSET (oid_t, oid_low), H5T_NATIVE_UINT64);
+	H5Tinsert (oid_memtype, "Dkey Offset", HOFFSET (oid_t, dkey_offset), H5T_NATIVE_UINT64);
+
+	/* DKEY Data */
+	hid_t dkey_memtype;
+	hid_t dkey_vtype;
+	hid_t dkey_dspace;
+	hid_t dkey_dset;
+	dkey_memtype = H5Tcreate(H5T_COMPOUND, sizeof(dkey_t));
+	dkey_vtype = H5Tvlen_create(H5T_NATIVE_CHAR);
+	H5Tinsert(dkey_memtype, "Akey Offset",
+	HOFFSET(dkey_t, akey_offset), H5T_NATIVE_UINT64);
+	H5Tinsert(dkey_memtype, "Dkey Value", HOFFSET(dkey_t, dkey_val), dkey_vtype);
+								
+	/* AKEY Data */
+	hid_t akey_memtype;
+	hid_t akey_vtype;
+	hid_t akey_dspace;
+	hid_t akey_dset;
+	akey_memtype = H5Tcreate(H5T_COMPOUND, sizeof(akey_t));
+	akey_vtype = H5Tvlen_create(H5T_NATIVE_CHAR);
+	H5Tinsert(akey_memtype, "Dataset ID",
+		HOFFSET(akey_t, rec_dset_id), H5T_NATIVE_UINT64);
+	H5Tinsert(akey_memtype, "Akey Value", HOFFSET(akey_t, akey_val), akey_vtype);
+								
+	/* List objects in src container to be copied to 
+	* destination container */
+	static const int OID_ARR_SIZE = 50;
+ 	daos_obj_id_t	 oids[OID_ARR_SIZE];
+ 	daos_anchor_t	 anchor;
+ 	uint32_t	 oids_nr;
+ 	daos_handle_t	 toh;
+ 	daos_epoch_t	 epoch;
+	uint32_t         total = 0;
+
+	rc = daos_cont_create_snap(ap->cont, &epoch, NULL, NULL);
+	if (rc)
+		fprintf(stderr, "failed to create snapshot\n");	
+
+	rc = daos_cont_open_oit(ap->cont, epoch, &toh, NULL);
+ 	D_ASSERT(rc == 0);
+
+ 	memset(&anchor, 0, sizeof(anchor));
+	while (1) {
+ 		oids_nr = OID_ARR_SIZE;
+ 		rc = daos_cont_list_oit(toh, oids, &oids_nr, &anchor, NULL);
+ 		//D_ASSERT(rc == 0, "%d\n", rc);
+ 		D_PRINT("returned %d oids\n", oids_nr);
+
+		int64_t oid_nr = oids_nr;
+		hsize_t oid_dims[1] = {oid_nr};
+
+		oid_dspace = H5Screate_simple(1, oid_dims, NULL);
+		oid_dset = H5Dcreate(file, "Oid Data", oid_memtype, oid_dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		uint64_t total_dkeys = 0;
+		uint64_t total_akeys = 0;
+		oid_t *oid_data = malloc(oid_nr * sizeof(oid_t));
+		dkey_t *dkey_data = malloc(sizeof(dkey_t) * 100);
+		akey_t *akey_data = malloc(sizeof(akey_t) * 100);
+		uint64_t dk_index = 0;
+		uint64_t ak_index = 0;
+		dkey_t **dk = &dkey_data;
+		akey_t **ak = &akey_data;
+
+		int i;
+		/* list object ID's */
+ 		for (i = 0; i < oids_nr; i++) {
+ 			D_PRINT("oid[%d] ="DF_OID"\n", total, DP_OID(oids[i]));
+			/* open DAOS object based on oid[i] to get obj handle */
+			daos_handle_t oh;
+
+		        uint64_t dkey_offset = 0;
+		        uint64_t akey_offset = 0;
+			oid_data[i].oid_hi = oids[i].hi;
+			oid_data[i].oid_low = oids[i].lo;
+
+			rc = daos_obj_open(ap->cont, oids[i], 0, &oh, NULL);
+
+			rc = serialize_list_keys(&file, dk, &dk_index, ak, &ak_index,
+						&dkey_offset, &akey_offset,
+						&total_dkeys, &total_akeys, &oh);
+
+			oid_data[i].dkey_offset = dkey_offset;
+			printf("oid[%d] dkey offset: %lu\n", i, oid_data[i].dkey_offset);
+			/* close source and destination object */
+                       	daos_obj_close(oh, NULL);
+ 			total++;
+	        }
+
+	        printf("total dkeys: %lu\n", total_dkeys);
+	        printf("total akeys: %lu\n", total_akeys);
+		hsize_t dkey_dims[1] = {total_dkeys};     
+		dkey_dspace = H5Screate_simple(1, dkey_dims, NULL);
+		dkey_dset = H5Dcreate(file, "Dkey Data", dkey_memtype, dkey_dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+
+		hsize_t akey_dims[1] = {total_akeys};     
+		akey_dspace = H5Screate_simple(1, akey_dims, NULL);
+		akey_dset = H5Dcreate(file, "Akey Data", akey_memtype, akey_dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+
+		hid_t status = H5Dwrite(oid_dset, oid_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, oid_data);
+		printf("STATUS oid data write: %d\n", (int)status);
+		status = H5Dwrite(dkey_dset, dkey_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, (*dk));
+		printf("STATUS dkey data write: %d\n", (int)status);
+		H5Dwrite(akey_dset, akey_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, akey_data);
+
+		H5Dclose(oid_dset);
+		H5Dclose(dkey_dset);
+		H5Dclose(akey_dset);
+		H5Sclose(oid_dspace);
+		H5Sclose(dkey_dspace);
+		H5Sclose(akey_dspace);
+		H5Tclose(oid_memtype);
+		H5Tclose(dkey_memtype);
+		H5Tclose(akey_memtype);
+
+		if (oid_data != NULL)
+			free(oid_data);
+		if (dkey_data != NULL)
+			free(dkey_data);
+		if (akey_data != NULL)
+			free(akey_data);
+ 		if (daos_anchor_is_eof(&anchor)) {
+ 			//D_PRINT("done\n");
+ 			break;
+ 		}
+	}
+
+	/* close object iterator */
+ 	rc = daos_cont_close_oit(toh, NULL);
+	daos_epoch_range_t epr;
+	epr.epr_lo = epoch;
+	epr.epr_hi = epoch;
+	rc = daos_cont_destroy_snap(ap->cont, epr, NULL);
+	D_ASSERT(rc == 0);
+
 	return rc;
 }
 

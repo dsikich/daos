@@ -25,6 +25,7 @@ enum cont_op {
 	CONT_CREATE,
 	CONT_DESTROY,
 	CONT_COPY,
+	CONT_SERIALIZE,
 	CONT_LIST_OBJS,
 	CONT_QUERY,
 	CONT_STAT,
@@ -116,6 +117,27 @@ struct cmd_args_s {
 	char			*entry;		/* --entry for ACL */
 	char			*principal;	/* --principal for ACL */
 };
+
+/* for oid dataset */
+typedef struct {
+	uint64_t oid_hi;
+	uint64_t oid_low;
+	uint64_t dkey_offset;
+} oid_t;
+
+/* for dkey dataset */
+typedef struct {
+	/* array of vlen structure */
+	hvl_t dkey_val;
+	uint64_t akey_offset;
+} dkey_t;
+
+/* for akey dataset */
+typedef struct {
+	/* array of vlen structure */
+	hvl_t akey_val;
+	int rec_dset_id;
+} akey_t;
 
 #define ARGS_VERIFY_PUUID(ap, label, rcexpr)			\
 	do {							\
@@ -209,6 +231,7 @@ int cont_create_uns_hdlr(struct cmd_args_s *ap);
 int cont_query_hdlr(struct cmd_args_s *ap);
 int cont_destroy_hdlr(struct cmd_args_s *ap);
 int cont_copy_hdlr(struct cmd_args_s *ap);
+int cont_serialize_hdlr(struct cmd_args_s *ap);
 int cont_get_prop_hdlr(struct cmd_args_s *ap);
 int cont_set_prop_hdlr(struct cmd_args_s *ap);
 int cont_list_attrs_hdlr(struct cmd_args_s *ap);
@@ -234,6 +257,5 @@ int cont_set_owner_hdlr(struct cmd_args_s *ap);
  */
 
 /* Copy operations */
-/* TODO: create copy_cont_hdlr function */
 
 int obj_query_hdlr(struct cmd_args_s *ap);

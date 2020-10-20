@@ -38,6 +38,7 @@
 #include <daos/debug.h>
 #include <daos/object.h>
 #include <sys/stat.h>
+#include <hdf5.h>
 #include "daos_types.h"
 #include "daos_api.h"
 #include "daos_fs.h"
@@ -55,6 +56,8 @@ cont_op_parse(const char *str)
 		return CONT_DESTROY;
 	else if (strcmp(str, "copy") == 0)
 		return CONT_COPY;
+	else if (strcmp(str, "serialize") == 0)
+		return CONT_SERIALIZE;
 	else if (strcmp(str, "list-objects") == 0)
 		return CONT_LIST_OBJS;
 	else if (strcmp(str, "list-obj") == 0)
@@ -984,8 +987,9 @@ cont_op_hdlr(struct cmd_args_s *ap)
 	case CONT_COPY:
 		rc = cont_copy_hdlr(ap);
 		break;
-
-
+	case CONT_SERIALIZE:
+		rc = cont_serialize_hdlr(ap);
+		break;
 	/* TODO: implement the following ops */
 	case CONT_LIST_OBJS:
 		/* rc = cont_list_objs_hdlr(ap); */
@@ -1299,6 +1303,11 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 			"	--dst_pool=UUID    dst pool UUID\n"
 			"	--src_cont=UUID    src cont UUID\n"
 			"	--dst_cont=UUID    dst cont UUID\n");
+		} else if (strcmp(argv[3], "serialize") == 0) {
+			fprintf(stream,
+			"container options (serialize):\n"
+			"	--pool=UUID    pool UUID\n"
+			"	--cont=UUID    cont UUID\n");
 		} else if (strcmp(argv[3], "get-attr") == 0 ||
 			   strcmp(argv[3], "set-attr") == 0 ||
 			   strcmp(argv[3], "del-attr") == 0) {
