@@ -1507,12 +1507,13 @@ serialize_list_keys(hid_t *file,
 	char            enum_buf[ENUM_DESC_BUF] = {0};
 	uint32_t        dkey_number;
 	uint32_t        akey_number;
-	daos_key_desc_t kds[ENUM_DESC_NR]       = {0};
+	//daos_key_desc_t kds[ENUM_DESC_NR]       = {0};
 	d_iov_t         iov;
 	int rc;
 	uint64_t total_dkeys_this_oid = 0;
 	uint64_t total_akeys_this_oid = 0;
 	while (!daos_anchor_is_eof(&dkey_anchor)) {
+		daos_key_desc_t dkey_kds[ENUM_DESC_NR]       = {0};
 		dkey_number                        = ENUM_DESC_NR;
                 char dkey[ENUM_KEY_BUF]       = {0};
 
@@ -1523,7 +1524,7 @@ serialize_list_keys(hid_t *file,
 	        d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
 
 		/* get dkeys */
-		rc = daos_obj_list_dkey(*oh, DAOS_TX_NONE, &dkey_number, kds,
+		rc = daos_obj_list_dkey(*oh, DAOS_TX_NONE, &dkey_number, dkey_kds,
 			&sgl, &dkey_anchor, NULL);
 		if (rc)
 			return daos_der2errno(rc);       
@@ -1540,22 +1541,23 @@ serialize_list_keys(hid_t *file,
                	for (ptr = enum_buf, j = 0; j < dkey_number; j++) {
 			/* Print enumerated dkeys */
             		daos_key_t diov;
-			snprintf(dkey, kds[j].kd_key_len + 1, "%s", ptr);
-			d_iov_set(&diov, (void*)dkey, kds[j].kd_key_len);
-			printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)kds[j].kd_key_len);
-			dkey_data_ptr = (char*) malloc((int)kds[j].kd_key_len * sizeof(char));
-			memcpy(dkey_data_ptr, diov.iov_buf, (int)kds[j].kd_key_len);
-			(*dk)[*dk_index].dkey_val.len = (int)kds[j].kd_key_len; 
+			snprintf(dkey, dkey_kds[j].kd_key_len + 1, "%s", ptr);
+			d_iov_set(&diov, (void*)dkey, dkey_kds[j].kd_key_len);
+			printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)dkey_kds[j].kd_key_len);
+			dkey_data_ptr = (char*) malloc((int)dkey_kds[j].kd_key_len * sizeof(char));
+			memcpy(dkey_data_ptr, diov.iov_buf, (int)dkey_kds[j].kd_key_len);
+			(*dk)[*dk_index].dkey_val.len = (int)dkey_kds[j].kd_key_len; 
 			(*dk)[*dk_index].dkey_val.p = (void*)dkey_data_ptr; 
 
 			/* loop to enumerate akeys */
 			daos_anchor_t akey_anchor = {0}; 
 			while (!daos_anchor_is_eof(&akey_anchor)) {
+				daos_key_desc_t akey_kds[ENUM_DESC_NR]       = {0};
 				char akey[ENUM_KEY_BUF] = {0};
 			        akey_number  = ENUM_DESC_NR;
 
 				memset(enum_buf, 0, sizeof(enum_buf));
-				memset(kds, 0, sizeof(kds));
+				//memset(kds, 0, sizeof(kds));
 
 				sgl.sg_nr     = 1;
 				sgl.sg_nr_out = 0;
@@ -1564,7 +1566,7 @@ serialize_list_keys(hid_t *file,
 				d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
 
 				/* get akeys */
-				rc = daos_obj_list_akey(*oh, DAOS_TX_NONE, &diov, &akey_number, kds,
+				rc = daos_obj_list_akey(*oh, DAOS_TX_NONE, &diov, &akey_number, akey_kds,
 							&sgl, &akey_anchor, NULL);
 				if (rc)
 					return daos_der2errno(rc);       
@@ -1582,13 +1584,13 @@ serialize_list_keys(hid_t *file,
 				for (ptr = enum_buf, i = 0; i < akey_number; i++) {
 					daos_key_t aiov;
 					daos_iod_t iod;
-					snprintf(akey, kds[i].kd_key_len + 1, "%s", ptr);
-					d_iov_set(&aiov, (void*)akey, kds[i].kd_key_len);
-					printf("\ti:%d akey:%s len:%d\n", i, (char*)aiov.iov_buf, (int)kds[i].kd_key_len);
+					snprintf(akey, akey_kds[i].kd_key_len + 1, "%s", ptr);
+					d_iov_set(&aiov, (void*)akey, akey_kds[i].kd_key_len);
+					printf("\ti:%d akey:%s len:%d\n", i, (char*)aiov.iov_buf, (int)akey_kds[i].kd_key_len);
 
-					akey_data_ptr = (char *)malloc((int)kds[i].kd_key_len * sizeof(char));
-					memcpy(akey_data_ptr, aiov.iov_buf, (int)kds[i].kd_key_len);
-					(*ak)[*ak_index].akey_val.len = (int)kds[i].kd_key_len; 
+					akey_data_ptr = (char *)malloc((int)akey_kds[i].kd_key_len * sizeof(char));
+					memcpy(akey_data_ptr, aiov.iov_buf, (int)akey_kds[i].kd_key_len);
+					(*ak)[*ak_index].akey_val.len = (int)akey_kds[i].kd_key_len; 
 					(*ak)[*ak_index].akey_val.p = (void*)akey_data_ptr; 
 
 					/* set iod values */
@@ -1639,22 +1641,22 @@ serialize_list_keys(hid_t *file,
 						//rc = serialize_recx_single(&diov, oh, &iod);
 					}
 					/* advance to next akey returned */	
-					ptr += kds[i].kd_key_len;
+					ptr += akey_kds[i].kd_key_len;
 					(*ak_index)++;
 >>>>>>> add hdf5 serialization using hyperslab
 				}
 				total_akeys_this_oid += akey_number;
 			}
-			ptr += kds[j].kd_key_len;
+			ptr += dkey_kds[j].kd_key_len;
 			(*dk_index)++;
 		}
 		total_dkeys_this_oid += dkey_number;
 	}
 	*total_dkeys = (*total_dkeys) + total_dkeys_this_oid;
-	*total_akeys = (*total_akeys) + total_akeys_this_oid;
 	*dkey_offset = (*total_dkeys) - total_dkeys_this_oid;
+	*total_akeys = (*total_akeys) + total_akeys_this_oid;
 	*akey_offset = (*total_akeys) - total_akeys_this_oid;
-	if ((*dk_index - 1) >= 0) {
+	if (akey_number > 0) {
 		(*dk)[*dk_index - 1].akey_offset = *akey_offset;
 		printf("akey offset: %lu\n", *akey_offset);
 	}
