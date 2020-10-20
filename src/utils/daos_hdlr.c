@@ -1270,77 +1270,77 @@ copy_list_keys(daos_handle_t *src_oh,
 {
 	/* loop to enumerate dkeys */
 	daos_anchor_t dkey_anchor = {0}; 
-	d_sg_list_t     sgl;
-	char            enum_buf[ENUM_DESC_BUF] = {0};
-	uint32_t        number                  = ENUM_DESC_NR;
-	daos_key_desc_t kds[ENUM_DESC_NR]       = {0};
-	d_iov_t         iov;
 	int rc;
 	while (!daos_anchor_is_eof(&dkey_anchor)) {
-		number                        = ENUM_DESC_NR;
-                char dkey[ENUM_KEY_BUF]       = {0};
+		d_sg_list_t     sgl;
+		d_iov_t         iov;
+		daos_key_desc_t dkey_kds[ENUM_DESC_NR]       = {0};
+		uint32_t        dkey_number                  = ENUM_DESC_NR;
+		char            dkey_enum_buf[ENUM_DESC_BUF] = {0};
+                char 		dkey[ENUM_KEY_BUF]           = {0};
 
                 sgl.sg_nr     = 1;
 	        sgl.sg_nr_out = 0;
 	        sgl.sg_iovs   = &iov;
 
-	        d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
+	        d_iov_set(&iov, dkey_enum_buf, ENUM_DESC_BUF);
 
 		/* get dkeys */
-		rc = daos_obj_list_dkey(*src_oh, DAOS_TX_NONE, &number, kds,
+		rc = daos_obj_list_dkey(*src_oh, DAOS_TX_NONE, &dkey_number, dkey_kds,
 			&sgl, &dkey_anchor, NULL);
 		if (rc)
 			return daos_der2errno(rc);       
 
 		/* if no dkeys were returned move on */
-		if (number == 0)
+		if (dkey_number == 0)
 			continue;
 
 		char* ptr;
 		int   rc;
 		int   j;
 		/* parse out individual dkeys based on key length and numver of dkeys returned */
-               	for (ptr = enum_buf, j = 0; j < number; j++) {
+               	for (ptr = dkey_enum_buf, j = 0; j < dkey_number; j++) {
 			/* Print enumerated dkeys */
             		daos_key_t diov;
-			snprintf(dkey, kds[j].kd_key_len + 1, "%s", ptr);
-			d_iov_set(&diov, (void*)dkey, kds[j].kd_key_len);
-			printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)kds[j].kd_key_len);
-			ptr += kds[j].kd_key_len;
+			snprintf(dkey, dkey_kds[j].kd_key_len + 1, "%s", ptr);
+			d_iov_set(&diov, (void*)dkey, dkey_kds[j].kd_key_len);
+			printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)dkey_kds[j].kd_key_len);
+			ptr += dkey_kds[j].kd_key_len;
 
 			/* loop to enumerate akeys */
 			daos_anchor_t akey_anchor = {0}; 
 			while (!daos_anchor_is_eof(&akey_anchor)) {
-				char akey[ENUM_KEY_BUF] = {0};
-			        number  = ENUM_DESC_NR;
-
-				memset(enum_buf, 0, sizeof(enum_buf));
-				memset(kds, 0, sizeof(kds));
+				d_sg_list_t     sgl;
+				d_iov_t         iov;
+				daos_key_desc_t akey_kds[ENUM_DESC_NR]       = {0};
+				uint32_t        akey_number                  = ENUM_DESC_NR;
+				char            akey_enum_buf[ENUM_DESC_BUF] = {0};
+				char 		akey[ENUM_KEY_BUF] 	     = {0};
 
 				sgl.sg_nr     = 1;
 				sgl.sg_nr_out = 0;
 				sgl.sg_iovs   = &iov;
 
-				d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
+				d_iov_set(&iov, akey_enum_buf, ENUM_DESC_BUF);
 
 				/* get akeys */
-				rc = daos_obj_list_akey(*src_oh, DAOS_TX_NONE, &diov, &number, kds,
+				rc = daos_obj_list_akey(*src_oh, DAOS_TX_NONE, &diov, &akey_number, akey_kds,
 							&sgl, &akey_anchor, NULL);
 				if (rc)
 					return daos_der2errno(rc);       
 
 				/* if no akeys returned move on */
-				if (number == 0)
+				if (akey_number == 0)
 					continue;
 				int j;
 				char* ptr;
 				/* parse out individual akeys based on key length and numver of dkeys returned */
-				for (ptr = enum_buf, j = 0; j < number; j++) {
+				for (ptr = akey_enum_buf, j = 0; j < akey_number; j++) {
 					daos_key_t aiov;
 					daos_iod_t iod;
-					snprintf(akey, kds[j].kd_key_len + 1, "%s", ptr);
-					d_iov_set(&aiov, (void*)akey, kds[j].kd_key_len);
-					printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)kds[j].kd_key_len);
+					snprintf(akey, akey_kds[j].kd_key_len + 1, "%s", ptr);
+					d_iov_set(&aiov, (void*)akey, akey_kds[j].kd_key_len);
+					printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)akey_kds[j].kd_key_len);
 
 					/* set iod values */
 					iod.iod_nr   = 1;
@@ -1362,7 +1362,7 @@ copy_list_keys(daos_handle_t *src_oh,
 						rc = copy_recx_single(&diov, src_oh, dst_oh, &iod);
 					}
 					/* advance to next akey returned */	
-					ptr += kds[j].kd_key_len;
+					ptr += akey_kds[j].kd_key_len;
 				}
 			}
 		}
