@@ -1229,9 +1229,9 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 
 	fprintf(stream, "daos command (v%s)\n", DAOS_VERSION);
 
-	//if (argc <= 2 && (strcmp(argv[2], "copy") != 0)) {
-	//	FIRST_LEVEL_HELP();
-	//} else
+	if (argc <= 2 && (strcmp(argv[2], "copy") != 0)) {
+		FIRST_LEVEL_HELP();
+	} else
         if (strcmp(argv[2], "pool") == 0) {
 		fprintf(stream, "\n"
 		"pool commands:\n"
@@ -1250,19 +1250,6 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		"	--svc=RANKS        pool service replicas like 1,2,3\n"
 		"	--attr=NAME        pool attribute name to get\n",
 			default_sysname);
-
-	/*} else if (strcmp(argv[2], "copy") == 0) {
-		fprintf(stream, "\n"
-		"copy commands:\n"
-		"	  copy             copy a cont\n");
-
-		fprintf(stream,
-		"copy options:\n"
-		"	--src_pool=UUID    src pool UUID\n"
-		"	--dst_pool=UUID    dst pool UUID\n"
-		"	--src_cont=UUID    src cont UUID\n"
-		"	--dst_cont=UUID    dst cont UUID\n");
-*/
 	} else if (strcmp(argv[2], "container") == 0 ||
 		   strcmp(argv[2], "cont") == 0) {
 		if (argc == 3) {

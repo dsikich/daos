@@ -1199,9 +1199,9 @@ copy_recx_single(daos_key_t *dkey,
 	sgl.sg_iovs   = &iov;
 	d_iov_set(&iov, buf, buf_len);
         rc = daos_obj_fetch(*src_oh, DAOS_TX_NONE, 0, dkey, 1, iod, &sgl, NULL, NULL);
-	//printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)(*iod).iod_size);
+	printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)(*iod).iod_size);
         rc = daos_obj_update(*dst_oh, DAOS_TX_NONE, 0, dkey, 1, iod, &sgl, NULL);
-	//printf("\tRC SINGLE VAL UPDATE: %d, IOD SIZE: %d\n", rc, (int)(*iod).iod_size);
+	printf("\tRC SINGLE VAL UPDATE: %d, IOD SIZE: %d\n", rc, (int)(*iod).iod_size);
 	return rc;
 }
 
@@ -1305,7 +1305,7 @@ copy_list_keys(daos_handle_t *src_oh,
             		daos_key_t diov;
 			snprintf(dkey, kds[j].kd_key_len + 1, "%s", ptr);
 			d_iov_set(&diov, (void*)dkey, kds[j].kd_key_len);
-			//printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)kds[j].kd_key_len);
+			printf("j:%d dkey iov buf:%s len:%d\n", j, (char*)diov.iov_buf, (int)kds[j].kd_key_len);
 			ptr += kds[j].kd_key_len;
 
 			/* loop to enumerate akeys */
@@ -1332,13 +1332,14 @@ copy_list_keys(daos_handle_t *src_oh,
 				/* if no akeys returned move on */
 				if (number == 0)
 					continue;
-
+				int j;
+				char* ptr;
 				/* parse out individual akeys based on key length and numver of dkeys returned */
 				for (ptr = enum_buf, j = 0; j < number; j++) {
 					daos_key_t aiov;
 					daos_iod_t iod;
 					snprintf(akey, kds[j].kd_key_len + 1, "%s", ptr);
-					d_iov_set(&aiov, (void*)ptr, kds[j].kd_key_len);
+					d_iov_set(&aiov, (void*)akey, kds[j].kd_key_len);
 					printf("\tj:%d akey:%s len:%d\n", j, (char*)aiov.iov_buf, (int)kds[j].kd_key_len);
 
 					/* set iod values */
