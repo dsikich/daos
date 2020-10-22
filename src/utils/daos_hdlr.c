@@ -1372,14 +1372,11 @@ copy_list_keys(daos_handle_t *src_oh,
 
 static int
 serialize_recx_single(hid_t *rx_dset,
+		 hid_t *rx_dtype,
 		 hid_t *rx_dspace,
 		 daos_key_t *dkey,
 		 daos_handle_t *oh,
 		 daos_iod_t *iod)
-//static int
-//serialize_recx_single(daos_key_t *dkey,
-//		 daos_handle_t *oh,
-//		 daos_iod_t *iod)
 {
 	/* if iod_type is single value just fetch iod size from source
 	 * and update in destination object */
@@ -1396,7 +1393,6 @@ serialize_recx_single(hid_t *rx_dset,
 	d_iov_set(&iov, buf, buf_len);
         rc = daos_obj_fetch(*oh, DAOS_TX_NONE, 0, dkey, 1, iod, &sgl, NULL, NULL);
 	printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)(*iod).iod_size);
-	//#if 0
 	hsize_t rx_dims[1] = {1};
 	hid_t rx_memspace = H5Screate_simple(1, rx_dims, NULL);
 	/* write single val record to dataset */
@@ -1404,11 +1400,8 @@ serialize_recx_single(hid_t *rx_dset,
 	*rx_dspace = H5Dget_space(*rx_dset);
 	hsize_t start = 0;
 	hsize_t count = 1; 
-	H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_SET, &start, NULL, &count, NULL);
-	hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, (*iod).iod_size);
-	H5Tset_tag(rx_dtype, "Opaque dtype");
-	H5Dwrite(*rx_dset, rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
-	//#endif
+	H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_AND, &start, NULL, &count, NULL);
+	H5Dwrite(*rx_dset, *rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
 	return rc;
 }
 
@@ -1420,11 +1413,6 @@ serialize_recx_array(hid_t *rx_dset,
 		daos_key_t *akey,
 		daos_handle_t *oh,
 		daos_iod_t *iod)
-/*static int
-serialize_recx_array(daos_key_t *dkey,
-		daos_key_t *akey,
-		daos_handle_t *oh,
-		daos_iod_t *iod)*/
 {
 	daos_anchor_t recx_anchor = {0}; 
 	int rc;
@@ -1468,7 +1456,6 @@ serialize_recx_array(daos_key_t *dkey,
 				&sgl, NULL, NULL);
 			printf("\tRC ARRAY VAL FETCH: %d, SGL DATA LEN: %d\n", rc,
 				(int)sgl.sg_iovs[0].iov_len);
-		//#if 0
 			/* write data to record dset */
 			hsize_t rx_dims[1] = {recxs[i].rx_nr};
 			hid_t rx_memspace = H5Screate_simple(1, rx_dims, NULL);
@@ -1477,11 +1464,10 @@ serialize_recx_array(daos_key_t *dkey,
 			*rx_dspace = H5Dget_space(*rx_dset);
 			hsize_t start = recxs[i].rx_idx;
 			hsize_t count = recxs[i].rx_nr;
-			H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_SET, &start, NULL, &count, NULL);
+			H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_AND, &start, NULL, &count, NULL);
 			hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, (*iod).iod_size);
 			H5Tset_tag(rx_dtype, "Opaque dtype");
 			H5Dwrite(*rx_dset, rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
-		//#endif 
 		}
 	}
 	return rc;
@@ -1502,25 +1488,20 @@ serialize_list_keys(hid_t *file,
 {
 	/* loop to enumerate dkeys */
 	daos_anchor_t dkey_anchor = {0}; 
-	d_sg_list_t     sgl;
-	char            enum_buf[ENUM_DESC_BUF] = {0};
-	uint32_t        dkey_number;
-	uint32_t        akey_number;
-	//daos_key_desc_t kds[ENUM_DESC_NR]       = {0};
-	d_iov_t         iov;
 	int rc;
-	uint64_t total_dkeys_this_oid = 0;
-	uint64_t total_akeys_this_oid = 0;
 	while (!daos_anchor_is_eof(&dkey_anchor)) {
+		d_sg_list_t     sgl;
+		d_iov_t         iov;
 		daos_key_desc_t dkey_kds[ENUM_DESC_NR]       = {0};
-		dkey_number                        = ENUM_DESC_NR;
-                char dkey[ENUM_KEY_BUF]       = {0};
+		uint32_t        dkey_number                  = ENUM_DESC_NR;
+		char            dkey_enum_buf[ENUM_DESC_BUF] = {0};
+                char 		dkey[ENUM_KEY_BUF]           = {0};
 
                 sgl.sg_nr     = 1;
 	        sgl.sg_nr_out = 0;
 	        sgl.sg_iovs   = &iov;
 
-	        d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
+	        d_iov_set(&iov, dkey_enum_buf, ENUM_DESC_BUF);
 
 		/* get dkeys */
 		rc = daos_obj_list_dkey(*oh, DAOS_TX_NONE, &dkey_number, dkey_kds,
@@ -1531,13 +1512,13 @@ serialize_list_keys(hid_t *file,
 		/* if no dkeys were returned move on */
 		if (dkey_number == 0)
 			continue;
-		//*dk = realloc(*dk,  (dkey_number + *total_dkeys) * sizeof(dkey_t));
+		*dk = realloc(*dk,  (dkey_number + *total_dkeys) * sizeof(dkey_t));
 		char* ptr;
 		char* dkey_data_ptr;
 		int   rc;
 		int   j;
 		/* parse out individual dkeys based on key length and numver of dkeys returned */
-               	for (ptr = enum_buf, j = 0; j < dkey_number; j++) {
+               	for (ptr = dkey_enum_buf, j = 0; j < dkey_number; j++) {
 			/* Print enumerated dkeys */
             		daos_key_t diov;
 			snprintf(dkey, dkey_kds[j].kd_key_len + 1, "%s", ptr);
@@ -1547,22 +1528,24 @@ serialize_list_keys(hid_t *file,
 			memcpy(dkey_data_ptr, diov.iov_buf, (int)dkey_kds[j].kd_key_len);
 			(*dk)[*dk_index].dkey_val.len = (int)dkey_kds[j].kd_key_len; 
 			(*dk)[*dk_index].dkey_val.p = (void*)dkey_data_ptr; 
+			ptr += dkey_kds[j].kd_key_len;
 
 			/* loop to enumerate akeys */
 			daos_anchor_t akey_anchor = {0}; 
 			while (!daos_anchor_is_eof(&akey_anchor)) {
-				daos_key_desc_t akey_kds[ENUM_DESC_NR]       = {0};
-				char akey[ENUM_KEY_BUF] = {0};
-			        akey_number  = ENUM_DESC_NR;
 
-				memset(enum_buf, 0, sizeof(enum_buf));
-				//memset(kds, 0, sizeof(kds));
+				d_sg_list_t     sgl;
+				d_iov_t         iov;
+				daos_key_desc_t akey_kds[ENUM_DESC_NR]       = {0};
+				uint32_t        akey_number                  = ENUM_DESC_NR;
+				char            akey_enum_buf[ENUM_DESC_BUF] = {0};
+		                char 		akey[ENUM_KEY_BUF]           = {0};
 
 				sgl.sg_nr     = 1;
 				sgl.sg_nr_out = 0;
 				sgl.sg_iovs   = &iov;
 
-				d_iov_set(&iov, enum_buf, ENUM_DESC_BUF);
+				d_iov_set(&iov, akey_enum_buf, ENUM_DESC_BUF);
 
 				/* get akeys */
 				rc = daos_obj_list_akey(*oh, DAOS_TX_NONE, &diov, &akey_number, akey_kds,
@@ -1571,16 +1554,14 @@ serialize_list_keys(hid_t *file,
 					return daos_der2errno(rc);       
 
 				/* if no akeys returned move on */
-				if (akey_number == 0) {
-					printf("NO AKEYS\n");
+				if (akey_number == 0)
 					continue;
-				}
-				//*ak = realloc(*ak,  (akey_number + *total_akeys) * sizeof(akey_t));
+				*ak = realloc(*ak,  (akey_number + *total_akeys) * sizeof(akey_t));
 				char *akey_data_ptr;
 				int i;
 				char* ptr;
 				/* parse out individual akeys based on key length and numver of dkeys returned */
-				for (ptr = enum_buf, i = 0; i < akey_number; i++) {
+				for (ptr = akey_enum_buf, i = 0; i < akey_number; i++) {
 					daos_key_t aiov;
 					daos_iod_t iod;
 					snprintf(akey, akey_kds[i].kd_key_len + 1, "%s", ptr);
@@ -1607,7 +1588,6 @@ serialize_list_keys(hid_t *file,
 					/* if iod_size == 0 then this is a DAOS_IOD_ARRAY type */
 					/* TODO: create a record dset for each
 					 * akey */
-					//#if 0
 					char rec_name[5];
 					snprintf(rec_name, 5, "%lu", *ak_index);
 					hsize_t rx_dims[1] = {0};
@@ -1617,46 +1597,57 @@ serialize_list_keys(hid_t *file,
 					H5Pset_layout(plist, H5D_CHUNKED);
 					hsize_t rx_chunk_dims[1] = {100};
 					H5Pset_chunk(plist, 1, rx_chunk_dims);
-					/* create opaque dtype and set to
-					 * iod_size for this akey */
-					hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, 1);
-					H5Tset_tag(rx_dtype, "Opaque dtype");
-					hid_t rx_dset = H5Dcreate(*file, rec_name, rx_dtype, rx_dspace,
-								H5P_DEFAULT, plist, H5P_DEFAULT);
-					H5Pclose(plist);
-					H5Sclose(rx_dspace);
-					//#endif
+					hid_t rx_dset;
 					if ((int)iod.iod_size == 0) {
-						// TODO: serialize recx array here
-						// rx_dset, rx_dspace
-						//rc = serialize_recx_array(&diov, &aiov, oh, &iod);
+						hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, 1);
+						H5Tset_tag(rx_dtype, "Opaque dtype");
+						rx_dset = H5Dcreate(*file, rec_name, rx_dtype, rx_dspace,
+								H5P_DEFAULT, plist, H5P_DEFAULT);
+						(*ak)[*ak_index].rec_dset_id = rx_dset;
+						H5Pclose(plist);
+						H5Sclose(rx_dspace);
 						rc = serialize_recx_array(&rx_dset, &rx_dspace,
 									&diov, &aiov, oh, &iod);
+						/* encode dataspace description
+						 * in buffer then store in
+						 * attribute on dataset */
+						size_t nalloc;
+						herr_t ret = H5Sencode(rx_dspace, NULL, &nalloc);
+						/* get size of buffer needed
+						 * from nalloc */
+						unsigned char *buf = malloc(nalloc * sizeof(unsigned char));
+						ret = H5Sencode(rx_dspace, buf, &nalloc);
+						char attr_name[36];
+						snprintf(attr_name, 36, "%d", rx_dset);
+						hid_t selection_attribute;
+						selection_attribute = H5Acreate2(rx_dset, attr_name, rx_dtype,
+										rx_dspace, H5P_DEFAULT, H5P_DEFAULT);
+						H5Awrite(selection_attribute, rx_dtype, buf);
+						if (buf != NULL) 
+							free(buf);
 					} else {
-						// TODO: serialize single val here
-						printf("CALLING RECX SINGLE\n");
-						rc = serialize_recx_single(&rx_dset, &rx_dspace,
-									&diov, oh, &iod);
-						//rc = serialize_recx_single(&diov, oh, &iod);
+						hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, iod.iod_size);
+						H5Tset_tag(rx_dtype, "Opaque dtype");
+						rx_dset = H5Dcreate(*file, rec_name, rx_dtype, rx_dspace,
+								H5P_DEFAULT, plist, H5P_DEFAULT);
+						(*ak)[*ak_index].rec_dset_id = rx_dset;
+						H5Pclose(plist);
+						H5Sclose(rx_dspace);
+						rc = serialize_recx_single(&rx_dset, &rx_dtype,
+									&rx_dspace, &diov, oh, &iod);
 					}
 					/* advance to next akey returned */	
 					ptr += akey_kds[i].kd_key_len;
 					(*ak_index)++;
 				}
-				total_akeys_this_oid += akey_number;
+				*total_akeys = (*total_akeys) + akey_number;
+				*akey_offset = (*total_akeys) - akey_number;
+				(*dk)[*dk_index].akey_offset = *akey_offset;
 			}
-			ptr += dkey_kds[j].kd_key_len;
 			(*dk_index)++;
 		}
-		total_dkeys_this_oid += dkey_number;
-	}
-	*total_dkeys = (*total_dkeys) + total_dkeys_this_oid;
-	*dkey_offset = (*total_dkeys) - total_dkeys_this_oid;
-	*total_akeys = (*total_akeys) + total_akeys_this_oid;
-	*akey_offset = (*total_akeys) - total_akeys_this_oid;
-	if (akey_number > 0) {
-		(*dk)[*dk_index - 1].akey_offset = *akey_offset;
-		printf("akey offset: %lu\n", *akey_offset);
+		*total_dkeys = (*total_dkeys) + dkey_number;
+		*dkey_offset = (*total_dkeys) - dkey_number;
 	}
 	return rc;
 }
@@ -1908,8 +1899,15 @@ cont_serialize_hdlr(struct cmd_args_s *ap)
 
 	/* TODO: setup HDF5 */
 	/* create h5 file */
+	char *ftype = ".h5";
+	char filename[64];
+	snprintf(filename, 64, "%s", DP_UUID(ap->c_uuid));
+	strcat(filename, ftype);
+	printf("Serializing Container "DF_UUIDF" to "DF_UUIDF".h5\n",
+		DP_UUID(ap->c_uuid), DP_UUID(ap->c_uuid));
+
 	hid_t file;
-	file = H5Fcreate("container.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+	file = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
 	/* OID Data */
 	hid_t oid_memtype;
@@ -1975,8 +1973,8 @@ cont_serialize_hdlr(struct cmd_args_s *ap)
 		uint64_t total_dkeys = 0;
 		uint64_t total_akeys = 0;
 		oid_t *oid_data = malloc(oid_nr * sizeof(oid_t));
-		dkey_t *dkey_data = malloc(sizeof(dkey_t) * 100);
-		akey_t *akey_data = malloc(sizeof(akey_t) * 100);
+		dkey_t *dkey_data = malloc(sizeof(dkey_t));
+		akey_t *akey_data = malloc(sizeof(akey_t));
 		uint64_t dk_index = 0;
 		uint64_t ak_index = 0;
 		dkey_t **dk = &dkey_data;
