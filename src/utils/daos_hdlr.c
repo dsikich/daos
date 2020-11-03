@@ -1371,9 +1371,9 @@ copy_list_keys(daos_handle_t *src_oh,
 }
 
 static int
-serialize_recx_single(hid_t *rx_dset,
-		 hid_t *rx_dtype,
-		 hid_t *rx_dspace,
+serialize_recx_single(hid_t *single_dset,
+		 hid_t *single_dtype,
+		 hid_t *single_dspace,
 		 daos_key_t *dkey,
 		 daos_handle_t *oh,
 		 daos_iod_t *iod)
@@ -1393,24 +1393,20 @@ serialize_recx_single(hid_t *rx_dset,
 	d_iov_set(&iov, buf, buf_len);
         rc = daos_obj_fetch(*oh, DAOS_TX_NONE, 0, dkey, 1, iod, &sgl, NULL, NULL);
 	printf("\tRC SINGLE VAL FETCH: %d, IOD SIZE: %d\n", rc, (int)(*iod).iod_size);
-	hsize_t rx_dims[1] = {1};
-	hid_t rx_memspace = H5Screate_simple(1, rx_dims, NULL);
 	/* write single val record to dataset */
-	H5Dset_extent(*rx_dset, rx_dims);
-	*rx_dspace = H5Dget_space(*rx_dset);
-	hsize_t start = 0;
-	hsize_t count = 1; 
-	H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_AND, &start, NULL, &count, NULL);
-	H5Dwrite(*rx_dset, *rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
+	H5Dwrite(*single_dset, *single_dtype, H5S_ALL, *single_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
+	printf("\tSINGLE DSET ID WRITTEN: %d\n", (int)*single_dset);
 	return rc;
 }
 
 
 static int
 serialize_recx_array(hid_t *rx_dset,
+		hid_t *rx_dtype,
 		hid_t *rx_dspace,
 		daos_key_t *dkey,
 		daos_key_t *akey,
+		uint64_t *ak_index,
 		daos_handle_t *oh,
 		daos_iod_t *iod)
 {
@@ -1465,9 +1461,49 @@ serialize_recx_array(hid_t *rx_dset,
 			hsize_t start = recxs[i].rx_idx;
 			hsize_t count = recxs[i].rx_nr;
 			H5Sselect_hyperslab(*rx_dspace, H5S_SELECT_AND, &start, NULL, &count, NULL);
-			hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, (*iod).iod_size);
-			H5Tset_tag(rx_dtype, "Opaque dtype");
-			H5Dwrite(*rx_dset, rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
+			*rx_dtype = H5Tcreate(H5T_OPAQUE, (*iod).iod_size);
+			H5Tset_tag(*rx_dtype, "Opaque dtype");
+			H5Dwrite(*rx_dset, *rx_dtype, rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
+			printf("\tRECX DSET ID WRITTEN: %d\n", (int)*rx_dset);
+			printf("\tRECX DSPACE ID WRITTEN: %d\n", (int)*rx_dspace);
+			/* encode dataspace description
+			 * in buffer then store in
+			 * attribute on dataset */
+			size_t nalloc;
+			H5Sencode(*rx_dspace, NULL, &nalloc);
+			/* get size of buffer needed
+			 * from nalloc */
+			unsigned char *encode_buf = malloc(nalloc * sizeof(unsigned char));
+			unsigned char *read_buf = malloc(nalloc * sizeof(unsigned char));
+			H5S_sel_type dspace_t = H5Sget_select_type(*rx_dspace);
+			printf("\t\t\tDSPACE type BEFORE ENCODE: %d\n", (int)dspace_t);
+			H5Sencode(*rx_dspace, encode_buf, &nalloc);
+			char attr_name[64];
+			char number_str[10];
+			snprintf(number_str, 10, "%d", (int)(*ak_index));
+			snprintf(attr_name, 64, "%s", "A-");
+			//strcat(attr_name, "-");
+			strcat(attr_name, number_str);
+			int blen = nalloc * sizeof(unsigned char);
+			hsize_t attr_dims[1] = {blen};
+			hid_t dspace_aid = H5Screate_simple(1, attr_dims, NULL);
+			hid_t selection_attribute = H5Acreate2(*rx_dset, attr_name, *rx_dtype,
+							dspace_aid, H5P_DEFAULT, H5P_DEFAULT);
+			H5Awrite(selection_attribute, *rx_dtype, encode_buf);
+			//H5Aclose(selection_attribute);
+			/*H5Aread(selection_attribute, *rx_dtype, read_buf);
+			hid_t obj_id = H5Sdecode(read_buf);
+			H5S_sel_type dspace_type = H5Sget_select_type(obj_id);
+			printf("\t\t\tDSPACE type: %d\n", (int)dspace_type);
+			hssize_t nblocks = H5Sget_select_hyper_nblocks(obj_id);
+			printf("nblocks: %d\n", (int)nblocks);
+			printf("attr id: %d\n", (int)selection_attribute);*/
+			H5Aclose(selection_attribute);
+			H5Sclose(rx_memspace);
+ 			memset(encode_buf, 0, blen);
+ 			memset(read_buf, 0, blen);
+			if (encode_buf != NULL) 
+				free(encode_buf);
 		}
 	}
 	return rc;
@@ -1489,6 +1525,17 @@ serialize_list_keys(hid_t *file,
 	/* loop to enumerate dkeys */
 	daos_anchor_t dkey_anchor = {0}; 
 	int rc;
+	hsize_t single_dims[1] = {1};
+	hsize_t rx_dims[1] = {0};
+	hsize_t rx_max_dims[1] = {H5S_UNLIMITED};
+	hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
+	H5Pset_layout(plist, H5D_CHUNKED);
+	hsize_t rx_chunk_dims[1] = {100};
+	H5Pset_chunk(plist, 1, rx_chunk_dims);
+	hid_t rx_dspace = H5Screate_simple(1, rx_dims, rx_max_dims);
+	hid_t single_dspace = H5Screate_simple(1, single_dims, NULL);
+	hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, 1);
+	H5Tset_tag(rx_dtype, "Opaque dtype");
 	while (!daos_anchor_is_eof(&dkey_anchor)) {
 		d_sg_list_t     sgl;
 		d_iov_t         iov;
@@ -1568,10 +1615,10 @@ serialize_list_keys(hid_t *file,
 					d_iov_set(&aiov, (void*)akey, akey_kds[i].kd_key_len);
 					printf("\ti:%d akey:%s len:%d\n", i, (char*)aiov.iov_buf, (int)akey_kds[i].kd_key_len);
 
-					akey_data_ptr = (char *)malloc((int)akey_kds[i].kd_key_len * sizeof(char));
-					memcpy(akey_data_ptr, aiov.iov_buf, (int)akey_kds[i].kd_key_len);
-					(*ak)[*ak_index].akey_val.len = (int)akey_kds[i].kd_key_len; 
-					(*ak)[*ak_index].akey_val.p = (void*)akey_data_ptr; 
+					//akey_data_ptr = (char *)malloc((int)akey_kds[i].kd_key_len * sizeof(char));
+					//memcpy(akey_data_ptr, aiov.iov_buf, (int)akey_kds[i].kd_key_len);
+					//(*ak)[*ak_index].akey_val.len = (int)akey_kds[i].kd_key_len; 
+					//(*ak)[*ak_index].akey_val.p = (void*)akey_data_ptr; 
 
 					/* set iod values */
 					iod.iod_nr   = 1;
@@ -1590,51 +1637,61 @@ serialize_list_keys(hid_t *file,
 					 * akey */
 					char rec_name[5];
 					snprintf(rec_name, 5, "%lu", *ak_index);
-					hsize_t rx_dims[1] = {0};
-					hsize_t rx_max_dims[1] = {H5S_UNLIMITED};
-					hid_t rx_dspace = H5Screate_simple(1, rx_dims, rx_max_dims);
-					hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
-					H5Pset_layout(plist, H5D_CHUNKED);
-					hsize_t rx_chunk_dims[1] = {100};
-					H5Pset_chunk(plist, 1, rx_chunk_dims);
-					hid_t rx_dset;
 					if ((int)iod.iod_size == 0) {
-						hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, 1);
-						H5Tset_tag(rx_dtype, "Opaque dtype");
-						rx_dset = H5Dcreate(*file, rec_name, rx_dtype, rx_dspace,
-								H5P_DEFAULT, plist, H5P_DEFAULT);
-						(*ak)[*ak_index].rec_dset_id = rx_dset;
-						H5Pclose(plist);
-						H5Sclose(rx_dspace);
-						rc = serialize_recx_array(&rx_dset, &rx_dspace,
-									&diov, &aiov, oh, &iod);
+						hid_t rx_dset = H5Dcreate(*file, rec_name, rx_dtype, rx_dspace,
+									H5P_DEFAULT, plist, H5P_DEFAULT);
+						(*ak)[*ak_index].rec_dset_id = *ak_index;
+						printf("rx dset created: %lu\n", (uint64_t)rx_dset);
+						printf("rec dset id: %lu\n", (*ak)[*ak_index].rec_dset_id);
+						printf("dset name serialize: %s\n", rec_name);
+						printf("ak index: %d\n", (int)*ak_index);
+						akey_data_ptr = (char *)malloc((int)akey_kds[i].kd_key_len * sizeof(char));
+						memcpy(akey_data_ptr, aiov.iov_buf, (int)akey_kds[i].kd_key_len);
+						(*ak)[*ak_index].akey_val.len = (int)akey_kds[i].kd_key_len; 
+						(*ak)[*ak_index].akey_val.p = (char*)akey_data_ptr; 
+
+						rc = serialize_recx_array(&rx_dset, &rx_dtype, &rx_dspace,
+									  &diov, &aiov, ak_index, oh, &iod);
+						H5Dclose(rx_dset);
+						#if 0			
 						/* encode dataspace description
 						 * in buffer then store in
 						 * attribute on dataset */
 						size_t nalloc;
-						herr_t ret = H5Sencode(rx_dspace, NULL, &nalloc);
+						H5Sencode(rx_dspace, NULL, &nalloc);
 						/* get size of buffer needed
 						 * from nalloc */
 						unsigned char *buf = malloc(nalloc * sizeof(unsigned char));
-						ret = H5Sencode(rx_dspace, buf, &nalloc);
+						H5Sencode(rx_dspace, buf, &nalloc);
 						char attr_name[36];
 						snprintf(attr_name, 36, "%d", rx_dset);
 						hid_t selection_attribute;
 						selection_attribute = H5Acreate2(rx_dset, attr_name, rx_dtype,
 										rx_dspace, H5P_DEFAULT, H5P_DEFAULT);
 						H5Awrite(selection_attribute, rx_dtype, buf);
+						printf("attr id: %d\n", (int)selection_attribute);
 						if (buf != NULL) 
 							free(buf);
+						#endif
 					} else {
-						hid_t rx_dtype = H5Tcreate(H5T_OPAQUE, iod.iod_size);
-						H5Tset_tag(rx_dtype, "Opaque dtype");
-						rx_dset = H5Dcreate(*file, rec_name, rx_dtype, rx_dspace,
-								H5P_DEFAULT, plist, H5P_DEFAULT);
-						(*ak)[*ak_index].rec_dset_id = rx_dset;
-						H5Pclose(plist);
-						H5Sclose(rx_dspace);
-						rc = serialize_recx_single(&rx_dset, &rx_dtype,
-									&rx_dspace, &diov, oh, &iod);
+						hid_t single_dtype = H5Tcreate(H5T_OPAQUE, iod.iod_size);
+						H5Tset_tag(single_dtype, "Opaque dtype");
+						hid_t single_dset = H5Dcreate(*file, rec_name, single_dtype, single_dspace,
+										H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+						(*ak)[*ak_index].rec_dset_id = *ak_index;
+						printf("single dset created: %lu\n", (uint64_t)single_dset);
+						printf("single dset id: %lu\n", (*ak)[*ak_index].rec_dset_id);
+						printf("dset name serialize: %s\n", rec_name);
+						printf("ak index: %d\n", (int)*ak_index);
+						akey_data_ptr = (char *)malloc((int)akey_kds[i].kd_key_len * sizeof(char));
+						memcpy(akey_data_ptr, aiov.iov_buf, (int)akey_kds[i].kd_key_len);
+						(*ak)[*ak_index].akey_val.len = (int)akey_kds[i].kd_key_len; 
+						(*ak)[*ak_index].akey_val.p = (char*)akey_data_ptr; 
+
+						rc = serialize_recx_single(&single_dset, &single_dtype,
+									   &single_dspace, &diov, oh, &iod);
+						H5Dclose(single_dset);
+						H5Tclose(single_dtype);
 					}
 					/* advance to next akey returned */	
 					ptr += akey_kds[i].kd_key_len;
@@ -1649,6 +1706,9 @@ serialize_list_keys(hid_t *file,
 		*total_dkeys = (*total_dkeys) + dkey_number;
 		*dkey_offset = (*total_dkeys) - dkey_number;
 	}
+				H5Sclose(rx_dspace);
+				H5Sclose(single_dspace);
+				H5Tclose(rx_dtype);
 	return rc;
 }
 
@@ -2019,7 +2079,7 @@ cont_serialize_hdlr(struct cmd_args_s *ap)
 		printf("STATUS oid data write: %d\n", (int)status);
 		status = H5Dwrite(dkey_dset, dkey_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, (*dk));
 		printf("STATUS dkey data write: %d\n", (int)status);
-		H5Dwrite(akey_dset, akey_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, akey_data);
+		H5Dwrite(akey_dset, akey_memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, (*ak));
 
 		H5Dclose(oid_dset);
 		H5Dclose(dkey_dset);
@@ -2054,6 +2114,346 @@ cont_serialize_hdlr(struct cmd_args_s *ap)
 	return rc;
 }
 
+int
+cont_deserialize_hdlr(struct cmd_args_s *ap)
+{
+	int rc;
+	printf("\tpool UUID: "DF_UUIDF"\n", DP_UUID(ap->p_uuid));
+	printf("\tcont UUID: "DF_UUIDF"\n", DP_UUID(ap->c_uuid));
+	printf("\tsvc: "DF_UUIDF"\n", DP_UUID(ap->mdsrv));
+	printf("\th5filename: %s\n", ap->h5filename);
+
+	
+	daos_cont_info_t	cont_info;
+	dfs_attr_t attr;
+	attr.da_id = 0;
+	attr.da_oclass_id = ap->oclass;
+	attr.da_chunk_size = ap->chunk_size;
+	attr.da_props = ap->props;
+	rc = dfs_cont_create(ap->pool, ap->c_uuid, &attr, NULL, NULL);
+	if (rc != 0)
+		fprintf(stderr, "failed to create posix container: %d\n", rc);
+
+	/* print out created cont uuid */
+	fprintf(stdout, "Successfully created container "DF_UUIDF"\n", DP_UUID(ap->c_uuid));
+	rc = daos_cont_open(ap->pool, ap->c_uuid, DAOS_COO_RW, &ap->cont, &cont_info, NULL);
+
+	/* open passed in HDF5 file */
+
+	hid_t file;
+	//herr_t status;
+	file = H5Fopen(ap->h5filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+
+	/* read oid data */
+	hid_t oid_dspace;
+	hid_t oid_dtype;
+	hid_t oid_dset;
+	int oid_ndims;
+	hsize_t oid_dims[1];
+
+	oid_dset = H5Dopen(file, "Oid Data", H5P_DEFAULT);
+	oid_dspace = H5Dget_space(oid_dset);
+	oid_dtype = H5Dget_type(oid_dset);
+	oid_ndims = H5Sget_simple_extent_dims(oid_dspace, oid_dims, NULL);
+	printf("oid_ndims: %d\n", (int)oid_ndims);
+	oid_t *rdata;
+	rdata = (oid_t*)malloc(oid_dims[0] * sizeof(oid_t));
+	H5Dread(oid_dset, oid_dtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, rdata);
+
+	/* read dkey data */
+	hid_t dkey_dspace;
+	hid_t dkey_dtype;
+	hid_t dkey_dset;
+	int dkey_ndims;
+	hsize_t dkey_dims[1];
+
+	dkey_dset = H5Dopen(file, "Dkey Data", H5P_DEFAULT);
+	dkey_dspace = H5Dget_space(dkey_dset);
+	dkey_dtype = H5Dget_type(dkey_dset);
+	dkey_ndims = H5Sget_simple_extent_dims(dkey_dspace, dkey_dims, NULL);
+	printf("dkey_ndims: %d\n", (int)dkey_ndims);
+	printf("dkey_dims: %d\n", (int)dkey_dims[0]);
+	dkey_t *data;
+	data = (dkey_t*)malloc(dkey_dims[0] * sizeof(dkey_t));
+	H5Dread(dkey_dset, dkey_dtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
+
+	/* read akey data */
+	hid_t akey_dspace;
+	hid_t akey_dtype;
+	hid_t akey_dset;
+	int akey_ndims;
+	hsize_t akey_dims[1];
+
+	akey_dset = H5Dopen(file, "Akey Data", H5P_DEFAULT);
+	akey_dspace = H5Dget_space(akey_dset);
+	akey_dtype = H5Dget_type(akey_dset);
+	akey_ndims = H5Sget_simple_extent_dims(akey_dspace, akey_dims, NULL);
+	printf("akey_ndims: %d\n", (int)akey_ndims);
+	printf("akey_dims: %d\n", (int)akey_dims[0]);
+	akey_t *akey_data;
+	akey_data = (akey_t*)malloc(akey_dims[0] * sizeof(akey_t));
+	H5Dread(akey_dset, akey_dtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, akey_data);
+
+	int i;
+	//int rc;
+	for(i = 0; i < (int)oid_dims[0]; i++) {
+		daos_obj_id_t oid;
+		daos_handle_t oh;
+		oid.lo = rdata[i].oid_low;
+		oid.hi = rdata[i].oid_hi;
+		rc = daos_obj_open(ap->cont, oid, 0, &oh, NULL);
+
+		int j;
+		char *ptr;
+		uint64_t off = rdata[i].dkey_offset;
+		uint64_t next_off;
+		if ((i + 1) < oid_dims[0]) {
+			next_off = rdata[i + 1].dkey_offset;
+		} else {
+			next_off = off;
+		}
+		uint64_t dkey_num = next_off - off;
+		if (dkey_num == 0) {
+			dkey_num = 1;
+		}
+		printf("\tnum dkeys for this oid: %lu\n", dkey_num);
+		j = 0;
+		while (j < dkey_num) {
+            		daos_key_t diov;
+                	char dkey[ENUM_KEY_BUF] = {0};
+			ptr = data[off + j].dkey_val.p;
+			snprintf(dkey, data[off + j].dkey_val.len + 1, "%s", ptr);
+			d_iov_set(&diov, (void*)dkey, data[j].dkey_val.len);
+			printf("\tDKEY VAL: %s\n", (char*)dkey);
+
+			uint64_t aoff = data[off + j].akey_offset;
+			uint64_t anext_off;
+			if ((off + j + 1) < dkey_dims[0]) {
+				anext_off = data[off + j + 1].akey_offset;
+			} else {
+				anext_off = aoff;
+			}
+			uint64_t akey_num = anext_off - aoff;
+			if (akey_num == 0) {
+				akey_num = 1;
+			}
+			printf("\t\tnum akeys for this dkey: %lu\n", akey_num);
+
+			int k;
+			k = 0;
+			while (k < akey_num) {
+            			daos_key_t aiov;
+	                	char akey[ENUM_KEY_BUF] = {0};
+				ptr = akey_data[aoff + k].akey_val.p;
+				snprintf(akey, akey_data[aoff + k].akey_val.len + 1, "%s",
+					(char*)akey_data[aoff + k].akey_val.p);
+
+				d_iov_set(&aiov, (void*)akey, akey_data[j].akey_val.len);
+				printf("\t\tAKEY VAL: %s\n", (char*)akey);
+ 
+
+				/* read record data for each akey */
+				hid_t rx_dspace;
+				hid_t rx_dtype;
+				hid_t rx_dset;
+				hid_t rx_plist;
+				int rx_ndims;
+				hsize_t rx_dims[1];
+				uint64_t index = aoff + k;
+				int len = snprintf(NULL, 0, "%lu", index);
+				printf("\t\t\tLEN NEEDED: %d\n", len);
+				printf("\t\t\tindex: %lu\n", index);
+				char dset_name[len + 1];	
+				snprintf(dset_name, len + 1, "%lu", index);
+				printf("\t\t\tdset name: %s\n", dset_name);
+				//hid_t rx_dset_id = (hid_t)(akey_data[aoff + k].rec_dset_id);
+				//hsize_t size = H5Dget_storage_size(rx_dset_id);
+				//printf("\t\t\trx_dset id size: %d\n", (int)size);
+				//rx_dset = H5Oopen(file, dset_name, H5P_DEFAULT);
+				rx_dset = H5Dopen(file, dset_name, H5P_DEFAULT);
+				//rx_dset = (hid_t)(akey_data[aoff + k].rec_dset_id);
+				printf("\t\t\trx_dset: %lu\n", (uint64_t)rx_dset);
+				//printf("\t\t\trx_dset id: %lu\n", (uint64_t)rx_dset_id);
+				rx_dspace = H5Dget_space(rx_dset);
+				printf("\t\t\trx_dspace id: %d\n", (int)rx_dspace);
+				//H5Sclose(rx_dspace2);
+				//H5Sclose(rx_dset);
+				//H5Sclose(rx_dspace);
+//#if 0
+				rx_dtype = H5Dget_type(rx_dset);
+				rx_plist = H5Dget_create_plist(rx_dset);
+				rx_ndims = H5Sget_simple_extent_dims(rx_dspace, rx_dims, NULL);
+				printf("\t\t\trx_ndims: %d\n", (int)rx_ndims);
+				printf("\t\t\trx_dims: %d\n", (int)rx_dims[0]);
+				printf("\t\t\trx_plist: %d\n", (int)rx_plist);
+				printf("\t\t\trx_dtype: %d\n", (int)rx_dtype);
+				int num_attrs;
+				num_attrs = H5Aget_num_attrs(rx_dset);
+				printf("\t\t\tnum attrs: %d\n", num_attrs);
+				if (num_attrs > 0) {
+					hid_t aid;
+					int d;
+					for (d = 0; d < num_attrs; d++) {
+						aid = H5Aopen_idx(rx_dset, (unsigned int)d );
+						//do_attr(aid);
+						ssize_t len;
+						char name_buf[124]; 
+						len = H5Aget_name(aid, 124, name_buf);
+						printf("\t\t\t    Attribute Name : %s\n", name_buf);
+						printf("\t\t\t    Attribute Len : %d\n",(int)len);
+						//hid_t aid = H5Aopen(rx_dset, name_buf, H5P_DEFAULT);
+						//hid_t attr_dspace = H5Dget_space(aid);
+						//printf("\t\t\tattr dspace: %d\n", (int)attr_dspace);
+						hsize_t attr_space = H5Aget_storage_size(aid);
+						hid_t attr_type = H5Aget_type(aid);
+						size_t type_size = H5Tget_size(attr_type);
+						printf("\t\t\ttype size: %d\n", (int)type_size);
+						printf("\t\t\tattr id: %lu\n", (uint64_t)aid);
+						printf("\t\t\tattr space: %d\n", (int)attr_space);
+						
+						unsigned char *buf = malloc(type_size * attr_space);
+						herr_t status = H5Aread(aid, attr_type, buf);
+						printf("\t\t\tstatus attr read: %d\n", (int)status);
+						hid_t obj_id = H5Sdecode(buf);
+						printf("\t\t\tobj id : %d\n", (int)obj_id);
+						H5S_sel_type dspace_type = H5Sget_select_type(obj_id);
+						printf("\t\t\tDSPACE type: %d\n", (int)dspace_type);
+						hssize_t nblocks = H5Sget_select_hyper_nblocks(obj_id);
+						printf("nblocks: %d\n", (int)nblocks);
+						hsize_t buffer[64] = {0};
+						herr_t stat = H5Sget_select_hyper_blocklist(obj_id, 0, nblocks, buffer);
+						printf("\t\t\tstatus get blocklist: %d\n", (int)stat);
+						printf("\t\t\tBUFFER: %d\n", (int)buffer[0]);
+						printf("\t\t\tBUFFER: %d\n", (int)buffer[1]);
+						/* read recx data then update */
+						hsize_t start = buffer[0];
+						hsize_t count = buffer[1] + 1;
+						H5Sselect_hyperslab(obj_id, H5S_SELECT_AND, &start, NULL, &count, NULL);
+						uint64_t recx_len = count * 1;
+						char *recx_data = malloc(recx_len);
+ 						memset(recx_data, 0, recx_len);
+						printf("\t\t\tRECX LEN: %d\n", (int)recx_len);
+						printf("\t\t\tRECX DATA: %x\n", recx_data);
+			//hsize_t rx_dims[1] = {recxs[i].rx_nr};
+			//*rx_memspace = H5Screate_simple(1, rx_dims, NULL);
+			//H5Dwrite(*rx_dset, *rx_dtype, *rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
+						herr_t st = H5Dread(rx_dset, rx_dtype, obj_id, rx_dspace, H5P_DEFAULT, recx_data);
+						printf("\t\t\tREAD RECX DSET RET: %d\n", (int)st);
+
+						//uint64_t    wbuf_len = count;
+					        //char        wbuf[wbuf_len];
+						d_sg_list_t sgl;
+						d_iov_t     iov;
+
+						daos_iod_t iod;
+						d_iov_set(&iod.iod_name, (void*)akey, strlen(akey));
+						/* set iod values */
+						iod.iod_type  = DAOS_IOD_ARRAY;
+						iod.iod_size  = 1;
+						iod.iod_nr    = 1;
+						daos_recx_t recxs;
+						recxs.rx_nr = count;
+						recxs.rx_idx = start;
+						iod.iod_recxs = &recxs;
+
+						/* set sgl values */
+						sgl.sg_nr     = 1;
+						//sgl.sg_nr_out = 0;
+						sgl.sg_iovs   = &iov;
+
+						d_iov_set(&iov, recx_data, recx_len);	
+						/* update fetched recx values and place in destination object */
+                       				int rc = daos_obj_update(oh, DAOS_TX_NONE, 0, &diov, 1, &iod,
+							&sgl, NULL);
+						printf("\t\t\tOBJ UPDATE: %d\n", (int)rc);
+
+						H5Aclose(aid);
+						if (buf != NULL)
+							free(buf);
+							
+						//hssize_t nblocks = H5Sget_select_hyper_nblocks(obj_id);
+						//printf("nblocks: %d\n", (int)nblocks);
+						//H5Aclose(aid);
+						//*/
+					}
+				} else {
+						size_t tsize = H5Tget_size(rx_dtype);
+						printf("\t\t\tTSIZE SINGLE: %d\n", (int)tsize);
+						uint64_t single_len = tsize;
+						char *single_data = malloc(single_len);
+ 						memset(single_data, 0, single_len);
+						printf("\t\t\tSINGLE LEN: %d\n", (int)single_len);
+						printf("\t\t\tSINGLE DATA: %x\n", single_data);
+						herr_t st = H5Dread(rx_dset, rx_dtype, H5S_ALL, rx_dspace, H5P_DEFAULT, single_data);
+						printf("\t\t\tREAD SINGLE DSET RET: %d\n", (int)st);
+
+						//uint64_t    wbuf_len = count;
+					        //char        wbuf[wbuf_len];
+						d_sg_list_t sgl;
+						d_iov_t     iov;
+
+						daos_iod_t iod;
+						d_iov_set(&iod.iod_name, (void*)akey, strlen(akey));
+						/* set iod values */
+						iod.iod_type  = DAOS_IOD_SINGLE;
+						iod.iod_size  = tsize;
+						iod.iod_nr    = 1;
+						//daos_recx_t recxs;
+						//recxs.rx_nr = count;
+						//recxs.rx_idx = start;
+						//iod.iod_recxs = &recxs;
+
+						/* set sgl values */
+						sgl.sg_nr     = 1;
+						//sgl.sg_nr_out = 0;
+						sgl.sg_iovs   = &iov;
+
+						d_iov_set(&iov, single_data, single_len);	
+						/* update fetched recx values and place in destination object */
+                       				int rc = daos_obj_update(oh, DAOS_TX_NONE, 0, &diov, 1, &iod,
+							&sgl, NULL);
+						printf("\t\t\tOBJ UPDATE SINGLE: %d\n", (int)rc);
+
+
+
+				}
+		 		H5Pclose(rx_plist);	
+			 	H5Tclose(rx_dtype);	
+			 	H5Sclose(rx_dspace);	
+			 	H5Dclose(rx_dset);	
+				k++;
+			}
+			j++;
+		}
+		//}
+		//printf("OID HI: %lu\n", rdata[i].oid_hi);
+		//printf("OID LOW: %lu\n", rdata[i].oid_low);
+		//printf("DKEY OFFSET: %lu\n", rdata[i].dkey_offset);
+	}
+	//printf("rdata[0]: %s\n", rdata[0]);
+	//if (rdata != NULL)
+	//	free(rdata);
+	
+	
+	H5Dclose(oid_dset);
+	H5Dclose(dkey_dset);
+	H5Dclose(akey_dset);
+	H5Sclose(oid_dspace);
+	H5Sclose(dkey_dspace);
+	H5Sclose(akey_dspace);
+	H5Tclose(oid_dtype);
+	H5Tclose(dkey_dtype);
+	H5Tclose(akey_dtype);
+
+	/* TODO: remove this destroy container just for now while testing */
+	rc = cont_destroy_hdlr(ap);
+	//exit(0);
+
+	//D_ASSERT(rc == 0);
+	//
+//#endif
+	return rc;
+}
 
 static int
 print_acl(FILE *outstream, daos_prop_t *acl_prop, bool verbose)

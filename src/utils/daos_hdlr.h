@@ -26,6 +26,7 @@ enum cont_op {
 	CONT_DESTROY,
 	CONT_COPY,
 	CONT_SERIALIZE,
+	CONT_DESERIALIZE,
 	CONT_LIST_OBJS,
 	CONT_QUERY,
 	CONT_STAT,
@@ -80,6 +81,7 @@ struct cmd_args_s {
 	d_rank_list_t		*src_svc;
 	char			*dst_svc_str;	/* --dst_svc */
 	d_rank_list_t		*dst_svc;
+	char			*h5filename;	/* --h5filename for deserialization */
 	daos_handle_t		pool;
 	daos_handle_t		dst_pool;
 	uuid_t			c_uuid;		/* --cont */
@@ -136,7 +138,7 @@ typedef struct {
 typedef struct {
 	/* array of vlen structure */
 	hvl_t akey_val;
-	int rec_dset_id;
+	uint64_t rec_dset_id;
 } akey_t;
 
 #define ARGS_VERIFY_PUUID(ap, label, rcexpr)			\
@@ -232,6 +234,7 @@ int cont_query_hdlr(struct cmd_args_s *ap);
 int cont_destroy_hdlr(struct cmd_args_s *ap);
 int cont_copy_hdlr(struct cmd_args_s *ap);
 int cont_serialize_hdlr(struct cmd_args_s *ap);
+int cont_deserialize_hdlr(struct cmd_args_s *ap);
 int cont_get_prop_hdlr(struct cmd_args_s *ap);
 int cont_set_prop_hdlr(struct cmd_args_s *ap);
 int cont_list_attrs_hdlr(struct cmd_args_s *ap);

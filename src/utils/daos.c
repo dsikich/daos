@@ -58,6 +58,8 @@ cont_op_parse(const char *str)
 		return CONT_COPY;
 	else if (strcmp(str, "serialize") == 0)
 		return CONT_SERIALIZE;
+	else if (strcmp(str, "deserialize") == 0)
+		return CONT_DESERIALIZE;
 	else if (strcmp(str, "list-objects") == 0)
 		return CONT_LIST_OBJS;
 	else if (strcmp(str, "list-obj") == 0)
@@ -470,6 +472,7 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 		{"pool",	required_argument,	NULL,	'p'},
 		{"svc",		required_argument,	NULL,	'm'},
 		{"cont",	required_argument,	NULL,	'c'},
+		{"h5filename",	required_argument,	NULL,	'F'},
 		{"src-pool",	required_argument,	NULL,	'S'},
 		{"dst-pool",	required_argument,	NULL,	'D'},
 		{"src-cont",	required_argument,	NULL,	'C'},
@@ -641,6 +644,16 @@ common_op_parse_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 			}
 			D_STRNDUP(ap->value_str, optarg, strlen(optarg));
 			if (ap->value_str == NULL)
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			break;
+		case 'F':
+			if (ap->h5filename != NULL) {
+				fprintf(stderr,
+					"only one hdf5 file is allowed\n");
+				D_GOTO(out_free, rc = RC_NO_HELP);
+			}
+			D_STRNDUP(ap->h5filename, optarg, strlen(optarg));
+			if (ap->h5filename == NULL)
 				D_GOTO(out_free, rc = RC_NO_HELP);
 			break;
 		case 'd':
@@ -825,6 +838,8 @@ out_free:
 		D_FREE(ap->attrname_str);
 	if (ap->value_str != NULL)
 		D_FREE(ap->value_str);
+	if (ap->h5filename != NULL)
+		D_FREE(ap->h5filename);
 	if (ap->path != NULL)
 		D_FREE(ap->path);
 	if (ap->src_path != NULL)
@@ -950,8 +965,11 @@ cont_op_hdlr(struct cmd_args_s *ap)
 		/* container UUID: user-provided, generated here or by uns library */
 
 		/* for container lookup ops: if no path specified, require --cont */
-		if ((op != CONT_CREATE) && (ap->path == NULL))
-			ARGS_VERIFY_CUUID(ap, out, rc = RC_PRINT_HELP);
+		if (op != CONT_DESERIALIZE) {
+			if ((op != CONT_CREATE) && (ap->path == NULL)) {
+				ARGS_VERIFY_CUUID(ap, out, rc = RC_PRINT_HELP);
+			}
+		}	
 
 		/* container create scenarios (generate UUID if necessary):
 		 * 1) both --cont, --path : uns library will use specified c_uuid.
@@ -960,11 +978,11 @@ cont_op_hdlr(struct cmd_args_s *ap)
 		 *                          (currently c_uuid null / clear).
 		 * 4) neither specified   : create a UUID in c_uuid.
 		 */
-		if ((op == CONT_CREATE) && (ap->path == NULL) &&
-		    (uuid_is_null(ap->c_uuid)))
+		if (((op == CONT_CREATE) && (ap->path == NULL) &&
+		    (uuid_is_null(ap->c_uuid))) || op == CONT_DESERIALIZE)
 			uuid_generate(ap->c_uuid);
 
-		if (op != CONT_CREATE && op != CONT_DESTROY) {
+		if (op != CONT_CREATE && op != CONT_DESTROY && op != CONT_DESERIALIZE) {
 			rc = daos_cont_open(ap->pool, ap->c_uuid, DAOS_COO_RW,
 					    &ap->cont, &cont_info, NULL);
 			if (rc != 0) {
@@ -989,6 +1007,9 @@ cont_op_hdlr(struct cmd_args_s *ap)
 		break;
 	case CONT_SERIALIZE:
 		rc = cont_serialize_hdlr(ap);
+		break;
+	case CONT_DESERIALIZE:
+		rc = cont_deserialize_hdlr(ap);
 		break;
 	/* TODO: implement the following ops */
 	case CONT_LIST_OBJS:
@@ -1308,6 +1329,12 @@ help_hdlr(int argc, char *argv[], struct cmd_args_s *ap)
 			"container options (serialize):\n"
 			"	--pool=UUID    pool UUID\n"
 			"	--cont=UUID    cont UUID\n");
+		} else if (strcmp(argv[3], "deserialize") == 0) {
+			fprintf(stream,
+			"container options (deserialize):\n"
+			"	--pool=UUID          pool UUID\n"
+			"	--cont=UUID          cont UUID\n"
+			"	--h5filename=FILESTR hdf5 filename to deserialize\n");
 		} else if (strcmp(argv[3], "get-attr") == 0 ||
 			   strcmp(argv[3], "set-attr") == 0 ||
 			   strcmp(argv[3], "del-attr") == 0) {
