@@ -2333,7 +2333,7 @@ cont_deserialize_hdlr(struct cmd_args_s *ap)
 						char *recx_data = malloc(recx_len);
  						memset(recx_data, 0, recx_len);
 						printf("\t\t\tRECX LEN: %d\n", (int)recx_len);
-						printf("\t\t\tRECX DATA: %x\n", recx_data);
+						printf("\t\t\tRECX DATA: %s\n", recx_data);
 			//hsize_t rx_dims[1] = {recxs[i].rx_nr};
 			//*rx_memspace = H5Screate_simple(1, rx_dims, NULL);
 			//H5Dwrite(*rx_dset, *rx_dtype, *rx_memspace, *rx_dspace, H5P_DEFAULT, sgl.sg_iovs[0].iov_buf);
@@ -2383,7 +2383,7 @@ cont_deserialize_hdlr(struct cmd_args_s *ap)
 						char *single_data = malloc(single_len);
  						memset(single_data, 0, single_len);
 						printf("\t\t\tSINGLE LEN: %d\n", (int)single_len);
-						printf("\t\t\tSINGLE DATA: %x\n", single_data);
+						printf("\t\t\tSINGLE DATA: %s\n", single_data);
 						herr_t st = H5Dread(rx_dset, rx_dtype, H5S_ALL, rx_dspace, H5P_DEFAULT, single_data);
 						printf("\t\t\tREAD SINGLE DSET RET: %d\n", (int)st);
 
